@@ -1,37 +1,14 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema, Document } from 'mongoose';
 
-export interface Interview {
-  id: string;
+export interface IInterviewSession extends Document {
+  sessionId: string;
   problemId: number;
+  problemTitle: string;
+  problemDifficulty: 'Easy' | 'Medium' | 'Hard';
   startTime: Date;
   endTime?: Date;
   duration: number; // in minutes
-  status: 'active' | 'completed' | 'abandoned';
-  testResults: Array<{
-    pass: boolean;
-    output: string;
-    input: string;
-    expected: unknown;
-    actual: unknown;
-  }>;
-  code: string;
-  messages: Array<{
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: string;
-  }>;
-  submittedAt?: Date;
-  aiEvaluation?: string;
-}
-
-export interface InterviewSession {
-  id: string;
-  problemId: number;
-  startTime: Date;
-  endTime?: Date;
-  duration: number; // in minutes
-  status: 'active' | 'completed' | 'abandoned';
+  status: 'active' | 'completed' | 'incomplete';
   currentCode: string;
   testResults: Array<{
     pass: boolean;
@@ -49,94 +26,92 @@ export interface InterviewSession {
   submittedAt?: Date;
   aiEvaluation?: string;
   elapsedTime: number; // in seconds
+  
+  // Enhanced metrics for feedback
+  performanceMetrics: {
+    testCasesPassed: number;
+    totalTestCases: number;
+    successRate: number;
+    timeEfficiency: number; // based on difficulty and time taken
+    codeQuality: number; // based on code length, comments, structure
+  };
+  
+  // AI feedback summary
+  aiFeedback: {
+    summary: string; // 2-3 sentence overview
+    strengths: string[]; // what went well
+    improvements: string[]; // areas for improvement
+    overallScore: number; // 0-100 score
+  };
+  
+  // For future user authentication
+  userId?: string;
+  
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-const InterviewSchema = new mongoose.Schema<Interview>({
-  problemId: {
-    type: Number,
-    required: true,
-    index: true,
+const InterviewSessionSchema = new Schema<IInterviewSession>({
+  sessionId: { type: String, required: true, unique: true },
+  problemId: { type: Number, required: true },
+  problemTitle: { type: String, required: true },
+  problemDifficulty: { 
+    type: String, 
+    required: true, 
+    enum: ['Easy', 'Medium', 'Hard'] 
   },
-  startTime: {
-    type: Date,
-    required: true,
+  startTime: { type: Date, required: true },
+  endTime: { type: Date },
+  duration: { type: Number, required: true },
+  status: { 
+    type: String, 
+    required: true, 
+    enum: ['active', 'completed', 'incomplete'] 
   },
-  endTime: {
-    type: Date,
-    required: false,
-  },
-  duration: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  status: {
-    type: String,
-    required: true,
-    enum: ['active', 'completed', 'abandoned'],
-    default: 'active',
-  },
+  currentCode: { type: String, required: true },
   testResults: [{
-    pass: {
-      type: Boolean,
-      required: true,
-    },
-    output: {
-      type: String,
-      required: true,
-    },
-    input: {
-      type: String,
-      required: true,
-    },
-    expected: {
-      type: mongoose.Schema.Types.Mixed,
-      required: true,
-    },
-    actual: {
-      type: mongoose.Schema.Types.Mixed,
-      required: true,
-    },
+    pass: { type: Boolean, required: true },
+    output: { type: String, required: true },
+    input: { type: String, required: true },
+    expected: { type: Schema.Types.Mixed },
+    actual: { type: Schema.Types.Mixed }
   }],
-  code: {
-    type: String,
-    required: true,
-  },
   messages: [{
-    id: {
-      type: String,
-      required: true,
-    },
-    role: {
-      type: String,
-      required: true,
-      enum: ['user', 'assistant'],
-    },
-    content: {
-      type: String,
-      required: true,
-    },
-    timestamp: {
-      type: String,
-      required: true,
-    },
+    id: { type: String, required: true },
+    role: { type: String, required: true, enum: ['user', 'assistant'] },
+    content: { type: String, required: true },
+    timestamp: { type: String, required: true }
   }],
-  submittedAt: {
-    type: Date,
-    required: false,
+  submittedAt: { type: Date },
+  aiEvaluation: { type: String },
+  elapsedTime: { type: Number, required: true },
+  
+  performanceMetrics: {
+    testCasesPassed: { type: Number, required: true },
+    totalTestCases: { type: Number, required: true },
+    successRate: { type: Number, required: true },
+    timeEfficiency: { type: Number, required: true },
+    codeQuality: { type: Number, required: true }
   },
-  aiEvaluation: {
-    type: String,
-    required: false,
+  
+  aiFeedback: {
+    summary: { type: String, required: true },
+    strengths: [{ type: String }],
+    improvements: [{ type: String }],
+    overallScore: { type: Number, required: true, min: 0, max: 100 }
   },
+  
+  userId: { type: String }, // for future Auth0 integration
+  
 }, {
-  timestamps: true,
+  timestamps: true
 });
 
 // Create indexes for better query performance
-InterviewSchema.index({ problemId: 1, createdAt: -1 });
-InterviewSchema.index({ status: 1, startTime: -1 });
+InterviewSessionSchema.index({ sessionId: 1 });
+InterviewSessionSchema.index({ problemId: 1 });
+InterviewSessionSchema.index({ status: 1 });
+InterviewSessionSchema.index({ startTime: -1 });
+InterviewSessionSchema.index({ userId: 1 }); // for future use
 
-const Interview = mongoose.models.Interview || mongoose.model<Interview>('Interview', InterviewSchema);
-
-export default Interview;
+export default mongoose.models.InterviewSession || mongoose.model<IInterviewSession>('InterviewSession', InterviewSessionSchema);

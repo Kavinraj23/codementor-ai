@@ -9,7 +9,7 @@ interface InterviewSession {
   startTime: Date;
   endTime?: Date;
   duration: number; // in minutes
-  status: 'active' | 'completed' | 'abandoned';
+  status: 'active' | 'completed' | 'incomplete';
   currentCode: string;
   testResults: Array<{
     pass: boolean;
@@ -129,7 +129,7 @@ export default function Dashboard() {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
       case 'in-progress': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'abandoned': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
+      case 'incomplete': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
     }
   };
@@ -159,7 +159,7 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Error Loading Dashboard</h2>
           <p className="text-gray-600 dark:text-gray-300 mb-4">{error}</p>
           <button
-            onClick={() => fetchInterviews(currentPage)}
+                                  onClick={() => fetchSessions()}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
           >
             Try Again
@@ -199,28 +199,22 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        {interviews.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        {sessions.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Total Interviews</h3>
               <p className="text-3xl font-bold text-blue-600">{pagination?.totalCount || 0}</p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Average Score</h3>
-              <p className={`text-3xl font-bold ${getScoreColor(interviews.reduce((acc, i) => acc + i.score.overall, 0) / interviews.length)}`}>
-                {Math.round(interviews.reduce((acc, i) => acc + i.score.overall, 0) / interviews.length)}%
-              </p>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Completed</h3>
               <p className="text-3xl font-bold text-green-600">
-                {interviews.filter(i => i.status === 'completed').length}
+                {sessions.filter(i => i.status === 'completed').length}
               </p>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Total Time</h3>
               <p className="text-3xl font-bold text-purple-600">
-                {Math.round(interviews.reduce((acc, i) => acc + i.duration, 0))}m
+                {Math.round(sessions.reduce((acc, i) => acc + i.duration, 0))}m
               </p>
             </div>
           </div>
@@ -228,7 +222,7 @@ export default function Dashboard() {
 
         {/* Interviews Table */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
-          {interviews.length === 0 ? (
+          {sessions.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-gray-400 text-6xl mb-4">📝</div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Interviews Yet</h3>
@@ -253,21 +247,12 @@ export default function Dashboard() {
                     <tr>
                       <th 
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                        onClick={() => handleSort('problemTitle')}
+                        onClick={() => handleSort('problemId')}
                       >
-                        Problem {sortBy === 'problemTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        Problem {sortBy === 'problemId' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Difficulty
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Language
-                      </th>
-                      <th 
-                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                        onClick={() => handleSort('score.overall')}
-                      >
-                        Score {sortBy === 'score.overall' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        Status
                       </th>
                       <th 
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
@@ -275,51 +260,32 @@ export default function Dashboard() {
                       >
                         Duration {sortBy === 'duration' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Status
-                      </th>
                       <th 
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-                        onClick={() => handleSort('createdAt')}
+                        onClick={() => handleSort('startTime')}
                       >
-                        Date {sortBy === 'createdAt' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        Date {sortBy === 'startTime' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {interviews.map((interview) => (
-                      <tr key={interview._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {sessions.map((session) => (
+                      <tr key={session.sessionId} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="font-medium text-gray-900 dark:text-white">
-                            {interview.problemTitle}
+                            Problem {session.problemId}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getDifficultyColor(interview.problemDifficulty)}`}>
-                            {interview.problemDifficulty}
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(session.status)}`}>
+                            {session.status}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
-                          {interview.language}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm font-semibold ${getScoreColor(interview.score.overall)}`}>
-                            {interview.score.overall}%
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            C:{interview.score.correctness} E:{interview.score.efficiency} S:{interview.score.codeStyle} Co:{interview.score.communication}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
-                          {interview.duration}m
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(interview.status)}`}>
-                            {interview.status}
-                          </span>
+                          {session.duration}m
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                          {new Date(interview.createdAt).toLocaleDateString()}
+                          {session.startTime.toLocaleDateString()}
                         </td>
                       </tr>
                     ))}
@@ -332,14 +298,14 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-gray-800 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700 sm:px-6">
                   <div className="flex-1 flex justify-between sm:hidden">
                     <button
-                      onClick={() => fetchInterviews(currentPage - 1)}
+                      onClick={() => { setCurrentPage(currentPage - 1); fetchSessions(); }}
                       disabled={!pagination.hasPrevPage}
                       className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Previous
                     </button>
                     <button
-                      onClick={() => fetchInterviews(currentPage + 1)}
+                      onClick={() => { setCurrentPage(currentPage + 1); fetchSessions(); }}
                       disabled={!pagination.hasNextPage}
                       className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >

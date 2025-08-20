@@ -6,8 +6,9 @@ import Editor from '@monaco-editor/react';
 import { getProblemById, Problem } from '@/data/problems';
 import { getFullPythonCode, getPythonTemplate } from '@/data/pythonTemplates';
 import ChatMessageRenderer from '@/components/ChatMessageRenderer';
-import ScoreDisplay from '@/components/ScoreDisplay';
-import { InterviewScorer, ScoreBreakdown, ScoringContext } from '@/lib/scoring';
+import MicrophonePermission from '@/components/MicrophonePermission';
+
+
 
 interface InterviewPageProps {
   params: Promise<{
@@ -56,13 +57,26 @@ export default function InterviewPage({ params }: InterviewPageProps) {
    const [followUpQuestionsAsked, setFollowUpQuestionsAsked] = useState(false);
    const [followUpQuestionsCount, setFollowUpQuestionsCount] = useState(0);
    
-   // Scoring state
-   const [score, setScore] = useState<ScoreBreakdown | null>(null);
-   const [showScore, setShowScore] = useState(false);
+
    
    // Chat scroll ref and state
    const chatMessagesRef = useRef<HTMLDivElement>(null);
    const [showScrollButton, setShowScrollButton] = useState(false);
+   
+   // Microphone permission state
+   const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
+   const [showMicrophonePrompt, setShowMicrophonePrompt] = useState(true); // Start as true - require permission to start
+   
+   // Voice interaction state
+   const [isAISpeaking, setIsAISpeaking] = useState(false);
+   const [speechSynthesis, setSpeechSynthesis] = useState<SpeechSynthesis | null>(null);
+   const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+   const [ttsEnabled, setTtsEnabled] = useState(true); // TTS toggle
+   
+   // STT (Speech-to-Text) state
+   const [isListening, setIsListening] = useState(false);
+   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+   const [transcript, setTranscript] = useState('');
 
      useEffect(() => {
      const problemId = parseInt(resolvedParams.problemId);
@@ -99,16 +113,136 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                 const welcomeMessage = {
                   id: 'welcome',
                   role: 'assistant' as const,
-                  content: `Welcome to your coding interview! I'm here to help guide you through solving **${foundProblem.title}**.\n\n• Think out loud about your approach\n• Ask questions about the problem\n• Request hints if you get stuck\n• Discuss time/space complexity\n\nTake your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!`,
+                  content: `Welcome to your voice-enabled coding interview! I'm here to help guide you through solving **${foundProblem.title}**.\n\n🎤 This interview uses voice interaction to evaluate your communication skills.\n\n• Think out loud about your approach\n• Ask questions about the problem\n• Request hints if you get stuck\n• Discuss time/space complexity\n\n💬 You can also type your responses if needed.\n\nTake your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!`,
                   timestamp: new Date().toISOString(),
                 };
        setMessages([welcomeMessage]);
+       
+       // Speak the welcome message after TTS is initialized
+       setTimeout(() => {
+         if (speechSynthesis) {
+           const cleanText = welcomeMessage.content
+             .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+             .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markers
+             .replace(/\*(.*?)\*/g, '$1') // Remove italic markers
+             .replace(/`([^`]+)`/g, '$1') // Remove inline code
+             .replace(/\n/g, ' ') // Replace newlines with spaces
+             .trim();
+           
+           if (cleanText) {
+             console.log('Speaking welcome message:', cleanText);
+             speakText(cleanText);
+           }
+         } else {
+           console.log('TTS not ready yet, retrying...');
+           // Retry after another delay if TTS still not ready
+           setTimeout(() => {
+             if (speechSynthesis) {
+               const cleanText = welcomeMessage.content
+                 .replace(/```[\s\S]*?```/g, '')
+                 .replace(/\*\*(.*?)\*\*/g, '$1')
+                 .replace(/\*(.*?)\*/g, '$1')
+                 .replace(/`([^`]+)`/g, '$1')
+                 .replace(/\n/g, ' ')
+                 .trim();
+               
+               if (cleanText) {
+                 console.log('Speaking welcome message (retry):', cleanText);
+                 speakText(cleanText);
+               }
+             }
+           }, 3000);
+         }
+       }, 2000); // Longer delay to ensure TTS is fully initialized
      } else {
        setError(`Problem with ID ${problemId} not found`);
      }
      
      setLoading(false);
    }, [resolvedParams.problemId]);
+
+   // Initialize TTS and STT when component mounts
+   useEffect(() => {
+     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+       const synthesis = window.speechSynthesis;
+       setSpeechSynthesis(synthesis);
+       
+       // Get available voices
+       const loadVoices = () => {
+         const voices = synthesis.getVoices();
+         const preferredVoice = voices.find(voice => 
+           voice.lang.startsWith('en') && voice.name.includes('Male')
+         ) || voices.find(voice => 
+           voice.lang.startsWith('en')
+         ) || voices[0];
+         
+         if (preferredVoice) {
+           console.log('Using TTS voice:', preferredVoice.name, preferredVoice.lang);
+         }
+       };
+       
+       // Load voices when they become available
+       if (synthesis.getVoices().length > 0) {
+         loadVoices();
+       } else {
+         synthesis.onvoiceschanged = loadVoices;
+       }
+     }
+
+              // Initialize STT (Speech Recognition)
+         if (typeof window !== 'undefined') {
+           const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+           
+           if (SpeechRecognition) {
+             const recognition = new SpeechRecognition();
+             recognition.continuous = false;
+             recognition.interimResults = true;
+             recognition.lang = 'en-US';
+             recognition.maxAlternatives = 1;
+             
+             // Event handlers
+             recognition.onstart = () => {
+               setIsListening(true);
+               console.log('Speech recognition started');
+             };
+             
+             recognition.onresult = (event) => {
+               const transcript = Array.from(event.results)
+                 .map(result => result[0].transcript)
+                 .join('');
+               setTranscript(transcript);
+             };
+             
+             recognition.onend = () => {
+               // Don't immediately stop listening - give user time to review transcript
+               console.log('Speech recognition ended');
+               // Keep transcript visible for a few seconds
+               setTimeout(() => {
+                 setIsListening(false);
+               }, 3000); // 3 second delay
+             };
+             
+             recognition.onerror = (event) => {
+               setIsListening(false);
+               console.error('Speech recognition error:', event);
+             };
+             
+             setRecognition(recognition);
+             console.log('Speech recognition initialized');
+           } else {
+             console.log('Speech recognition not supported');
+           }
+         }
+   }, []);
+
+   // Cleanup TTS on unmount
+   useEffect(() => {
+     return () => {
+       if (speechSynthesis) {
+         speechSynthesis.cancel();
+       }
+     };
+   }, [speechSynthesis]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -156,14 +290,14 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                     startTime: sessionStartTime,
                     endTime,
                     duration: Math.ceil((endTime.getTime() - (sessionStartTime?.getTime() || 0)) / (1000 * 60)), // in minutes
-                    status: reason === 'completion' ? 'completed' : 'abandoned',
+                    status: (reason === 'completion' || submitState === 'success') ? 'completed' : 'incomplete',
                     currentCode: code,
                     testResults,
                     messages,
                     submittedAt: submitState === 'success' ? new Date() : undefined,
-                    aiEvaluation: reason === 'completion' ? 'AI evaluation completed' : undefined,
+                    aiEvaluation: (reason === 'completion' || submitState === 'success') ? 'AI evaluation completed' : undefined,
                     elapsedTime,
-                    score: score || undefined,
+
                     followUpQuestionsAsked,
                     followUpQuestionsCount,
                   };
@@ -176,7 +310,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                 
                     // Show appropriate message based on reason
                     let endMessage = '';
-                    if (reason === 'completion') {
+                    if (reason === 'completion' || submitState === 'success') {
                       endMessage = '🎉 Interview completed successfully!';
                     } else {
                       endMessage = '👋 Interview session ended.';
@@ -191,13 +325,10 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                     };
                     setMessages(prev => [...prev, endMessageObj]);
                 
-                    // Redirect to score tab if interview was completed and score is available
-                    if (reason === 'completion' && showScore && score) {
-                      // Small delay to ensure the end message is added first
-                      setTimeout(() => {
-                        setActiveTab('score');
-                      }, 100);
-                    }
+                    // Redirect to dashboard after interview ends
+                    setTimeout(() => {
+                      window.location.href = '/dashboard';
+                    }, 1000); // 1 second delay to show the end message
                 
                   } catch (error) {
                     console.error('Error saving session:', error);
@@ -215,14 +346,125 @@ export default function InterviewPage({ params }: InterviewPageProps) {
           return () => clearInterval(timer);
         }, [isSessionActive]);
 
-  // Handle scroll detection for showing scroll-to-bottom button
-  const handleScroll = () => {
-    if (chatMessagesRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = chatMessagesRef.current;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
-      setShowScrollButton(!isNearBottom);
-    }
-  };
+     // Microphone permission handlers
+   const handleMicrophonePermissionGranted = () => {
+     setHasMicrophonePermission(true);
+     setShowMicrophonePrompt(false);
+   };
+
+   const handleMicrophonePermissionDenied = () => {
+     setHasMicrophonePermission(false);
+     setShowMicrophonePrompt(false);
+   };
+
+   // STT Functions
+   const startVoiceInteraction = () => {
+     if (!recognition) {
+       console.log('Speech recognition not available');
+       return;
+     }
+     
+     // Stop any ongoing AI speech when starting voice chat
+     if (isAISpeaking) {
+       stopSpeaking();
+       console.log('Stopped AI speech to start voice chat');
+     }
+     
+     try {
+       recognition.start();
+       setTranscript('');
+       console.log('Started voice recognition');
+     } catch (error) {
+       console.error('Error starting speech recognition:', error);
+     }
+   };
+
+   const stopVoiceInteraction = () => {
+     if (recognition) {
+       recognition.stop();
+       console.log('Stopped voice recognition manually');
+     }
+   };
+
+   const sendVoiceMessage = () => {
+     if (transcript.trim()) {
+       console.log('Sending voice message:', transcript);
+       sendMessage(transcript);
+       setTranscript('');
+       setIsListening(false); // Close transcript box after sending
+     }
+   };
+
+   const clearTranscript = () => {
+     setTranscript('');
+     setIsListening(false);
+   };
+
+   // TTS Functions
+   const speakText = (text: string) => {
+     if (!speechSynthesis || !ttsEnabled) {
+       console.log('TTS not available or disabled');
+       return;
+     }
+
+     // Stop any current speech
+     speechSynthesis.cancel();
+
+     // Create new utterance
+     const utterance = new SpeechSynthesisUtterance(text);
+     setSpeechUtterance(utterance);
+
+     // Configure voice settings
+     const voices = speechSynthesis.getVoices();
+     const preferredVoice = voices.find(voice => 
+       voice.lang.startsWith('en') && voice.name.includes('Male')
+     ) || voices.find(voice => 
+       voice.lang.startsWith('en')
+     ) || voices[0];
+
+     if (preferredVoice) {
+       utterance.voice = preferredVoice;
+     }
+
+     utterance.rate = 1.1; // Slightly faster than normal
+     utterance.pitch = 1.0; // Normal pitch
+     utterance.volume = 1.0; // Full volume
+
+     // Event handlers
+     utterance.onstart = () => {
+       setIsAISpeaking(true);
+       console.log('AI started speaking');
+     };
+
+     utterance.onend = () => {
+       setIsAISpeaking(false);
+       console.log('AI finished speaking');
+     };
+
+     utterance.onerror = (event) => {
+       setIsAISpeaking(false);
+       console.error('TTS error:', event.error);
+     };
+
+     // Start speaking
+     speechSynthesis.speak(utterance);
+   };
+
+   const stopSpeaking = () => {
+     if (speechSynthesis) {
+       speechSynthesis.cancel();
+       setIsAISpeaking(false);
+     }
+   };
+
+   // Handle scroll detection for showing scroll-to-bottom button
+   const handleScroll = () => {
+     if (chatMessagesRef.current) {
+       const { scrollTop, scrollHeight, clientHeight } = chatMessagesRef.current;
+       const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
+       setShowScrollButton(!isNearBottom);
+     }
+   };
 
   // Manual scroll to bottom function
   const scrollToBottom = () => {
@@ -286,6 +528,22 @@ export default function InterviewPage({ params }: InterviewPageProps) {
 
       // Add assistant message to chat
       setMessages(prev => [...prev, data.message]);
+
+      // Speak the AI response
+      if (data.message.role === 'assistant') {
+        // Clean the text for speech (remove markdown, code blocks, etc.)
+        const cleanText = data.message.content
+          .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+          .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markers
+          .replace(/\*(.*?)\*/g, '$1') // Remove italic markers
+          .replace(/`([^`]+)`/g, '$1') // Remove inline code
+          .replace(/\n/g, ' ') // Replace newlines with spaces
+          .trim();
+        
+        if (cleanText) {
+          speakText(cleanText);
+        }
+      }
 
       // Log usage for monitoring
       if (data.metadata) {
@@ -371,6 +629,22 @@ export default function InterviewPage({ params }: InterviewPageProps) {
         if (data.error) throw new Error(data.error);
 
         setMessages(prev => [...prev, data.message]);
+        
+        // Speak the AI hint response
+        if (data.message.role === 'assistant') {
+          const cleanText = data.message.content
+            .replace(/```[\s\S]*?```/g, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\n/g, ' ')
+            .trim();
+          
+          if (cleanText) {
+            speakText(cleanText);
+          }
+        }
+        
         if (data.metadata) {
           console.log(`💰 General hint cost: $${data.metadata.estimated_cost} | Tokens: ${data.usage.total_tokens}`);
         }
@@ -485,6 +759,38 @@ export default function InterviewPage({ params }: InterviewPageProps) {
           <div className="text-red-600 dark:text-red-400 text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Problem Not Found</h2>
           <p className="text-gray-600 dark:text-gray-300 mb-4">{error}</p>
+          <Link
+            href="/problem-select"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+          >
+            ← Back to Problem Selection
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Show microphone permission prompt if not granted
+  if (showMicrophonePrompt) {
+    return (
+      <MicrophonePermission
+        onPermissionGranted={handleMicrophonePermissionGranted}
+        onPermissionDenied={handleMicrophonePermissionDenied}
+      />
+    );
+  }
+
+  // Don't show interview if microphone permission denied
+  if (!hasMicrophonePermission) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-600 dark:text-red-400 text-6xl mb-4">🎤</div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Microphone Access Required</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            This interview requires voice interaction to properly evaluate your communication skills. 
+            Without microphone access, we cannot assess how well you articulate your problem-solving approach.
+          </p>
           <Link
             href="/problem-select"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
@@ -833,25 +1139,7 @@ if __name__ == "__main__":
            console.log(`[Follow-up] AI asked ${followUpQuestionMatches.length} follow-up questions`);
          }
 
-         // Calculate score from AI evaluation
-         try {
-           const scoringContext: ScoringContext = {
-             problemDifficulty: problem.difficulty as 'Easy' | 'Medium' | 'Hard',
-             timeTaken: Math.ceil(elapsedTime / 60),
-             testCasesPassed: testResults.filter(r => r.pass).length,
-             totalTestCases: problem.testCases.length,
-             codeLength: code.length,
-             hasComments: code.includes('#') || code.includes('"""') || code.includes("'''"),
-             hasErrorHandling: code.includes('try:') || code.includes('except:') || code.includes('if __name__')
-           };
-           
-           const calculatedScore = InterviewScorer.calculateScore(content, scoringContext);
-           setScore(calculatedScore);
-           setShowScore(true);
-           console.log('[Scoring] Calculated score:', calculatedScore);
-         } catch (error) {
-           console.error('[Scoring] Error calculating score:', error);
-         }
+
 
          // Set success state after evaluation
          setSubmitState('success');
@@ -893,19 +1181,7 @@ if __name__ == "__main__":
            <div className="font-bold mb-1">🎉 Congratulations! All test cases passed.</div>
            <div className="text-sm font-normal">
              Your solution has been evaluated by the AI. Check the chat tab for detailed feedback and follow-up questions!
-             {showScore && (
-               <span className="block mt-2">
-                 📊 <button 
-                   onClick={() => setActiveTab('score')} 
-                   className="underline hover:no-underline font-medium"
-                 >
-                   View your detailed score and analysis
-                 </button>
-                 <div className="text-xs text-green-700 dark:text-green-300 mt-1">
-                   (You&apos;ll be automatically redirected to the score tab when ending the interview)
-                 </div>
-               </span>
-             )}
+             
            </div>
          </div>
        );
@@ -1018,18 +1294,7 @@ if __name__ == "__main__":
                 >
                   🧪 Test Cases
                 </button>
-                {showScore && (
-                  <button
-                    onClick={() => setActiveTab('score')}
-                    className={`flex-1 px-3 py-3 text-xs font-medium transition-colors ${
-                      activeTab === 'score'
-                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-b-2 border-blue-500'
-                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    📊 Score
-                  </button>
-                )}
+
               </div>
 
               {/* Tab Content */}
@@ -1349,24 +1614,7 @@ if __name__ == "__main__":
                    </div>
                  )}
 
-                {/* Score Tab */}
-                {activeTab === 'score' && showScore && score && (
-                  <div className="h-full flex flex-col">
-                    <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interview Score & Analysis</h3>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4">
-                      <ScoreDisplay
-                        score={score}
-                        problemTitle={problem.title}
-                        difficulty={problem.difficulty}
-                        timeTaken={Math.ceil(elapsedTime / 60)}
-                        testCasesPassed={testResults.filter(r => r.pass).length}
-                        totalTestCases={problem.testCases.length}
-                      />
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Chat Tab */}
                 {activeTab === 'chat' && (
@@ -1374,16 +1622,70 @@ if __name__ == "__main__":
                                          {/* Chat Header */}
                      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                        <div className="flex items-center justify-between">
-                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">AI Interview Assistant</h3>
+                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interview Chat Transcript</h3>
                          <div className="flex items-center gap-2">
                            {submitState === 'success' && (
                              <div className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
                                ✅ Solution Submitted
                              </div>
                            )}
-                           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                           <span className="text-sm text-gray-600 dark:text-gray-400">Online</span>
+                           <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                             <span>Voice Enabled</span>
+                           </div>
+                           {isAISpeaking && (
+                             <div className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400">
+                               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                               <span>AI Speaking</span>
+                             </div>
+                           )}
+                           {!isAISpeaking && ttsEnabled && (
+                             <div className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                               <span>TTS Ready</span>
+                             </div>
+                           )}
+                           {isListening && (
+                             <div className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400">
+                               <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                               <span>Voice Active</span>
+                             </div>
+                           )}
                          </div>
+                       </div>
+                       
+                       {/* TTS Test Controls */}
+                       <div className="mt-3 flex items-center gap-2">
+                         <button
+                           onClick={() => {
+                             const testText = "Hello! This is a test of the text-to-speech system. Can you hear me speaking?";
+                             speakText(testText);
+                           }}
+                           className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                         >
+                           🔊 Test TTS
+                         </button>
+                         
+                         <button
+                           onClick={() => {
+                             const welcomeText = "Welcome to your voice-enabled coding interview! I'm here to help guide you through solving this problem. This interview uses voice interaction to evaluate your communication skills. Think out loud about your approach, ask questions about the problem, request hints if you get stuck, and discuss time and space complexity. You can also type your responses if needed. Take your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!";
+                             speakText(welcomeText);
+                           }}
+                           className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                         >
+                           🎤 Speak Welcome
+                         </button>
+                       </div>
+                       
+                       {/* Transcript Summary */}
+                       <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                         <span className="font-medium">{messages.length}</span> messages • 
+                         <span className="font-medium ml-1">
+                           {messages.filter(m => m.role === 'user').length}
+                         </span> from you • 
+                         <span className="font-medium ml-1">
+                           {messages.filter(m => m.role === 'assistant').length}
+                         </span> from AI
                        </div>
                      </div>
 
@@ -1399,7 +1701,7 @@ if __name__ == "__main__":
                         }`}>
                           {message.role === 'assistant' && (
                             <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-white">🤖</span>
+                              <span className="text-white text-lg">🤖</span>
                             </div>
                           )}
                           
@@ -1408,19 +1710,26 @@ if __name__ == "__main__":
                               ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200'
                               : 'bg-blue-50 dark:bg-blue-900/20 text-blue-900 dark:text-blue-200'
                           }`}>
+                            {/* Message header with role indicator */}
+                            <div className={`flex items-center gap-2 mb-3 text-xs ${
+                              message.role === 'user' ? 'text-gray-500 dark:text-gray-400' : 'text-blue-600 dark:text-blue-400'
+                            }`}>
+                              <span className="font-medium">
+                                {message.role === 'user' ? '👤 You' : '🤖 AI Interviewer'}
+                              </span>
+                              <span className="opacity-70">• {new Date(message.timestamp).toLocaleTimeString()}</span>
+                            </div>
+                            
                             <ChatMessageRenderer 
                               content={message.content} 
                               role={message.role}
                               onCodeInsert={(code) => setCode(code)}
                             />
-                            <div className="text-xs opacity-70 mt-3">
-                              {new Date(message.timestamp).toLocaleTimeString()}
-                            </div>
                           </div>
 
                           {message.role === 'user' && (
                             <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-white">👤</span>
+                              <span className="text-white text-lg">👤</span>
                             </div>
                           )}
                         </div>
@@ -1430,7 +1739,7 @@ if __name__ == "__main__":
                       {isLoading && (
                         <div className="flex items-start gap-3">
                           <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                            <span className="text-white">🤖</span>
+                            <span className="text-white text-lg">🤖</span>
                           </div>
                           <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 max-w-[85%]">
                             <div className="flex items-center gap-2">
@@ -1438,6 +1747,9 @@ if __name__ == "__main__":
                               <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                               <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                               <span className="text-blue-700 dark:text-blue-300 text-sm ml-2">AI is thinking...</span>
+                            </div>
+                            <div className="text-xs text-blue-600 dark:text-blue-400 mt-2 opacity-70">
+                              Preparing response...
                             </div>
                           </div>
                         </div>
@@ -1471,6 +1783,100 @@ if __name__ == "__main__":
 
                     {/* Chat Input */}
                     <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+                      {/* Voice Interaction Controls */}
+                      <div className="flex items-center justify-center gap-3 mb-3">
+                        <button
+                          onClick={isListening ? stopVoiceInteraction : startVoiceInteraction}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                            isListening 
+                              ? 'bg-red-600 hover:bg-red-700 text-white' 
+                              : 'bg-green-600 hover:bg-green-700 text-white'
+                          }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                          </svg>
+                          {isListening ? 'Stop Listening' : 'Start Voice Chat'}
+                        </button>
+                        
+                        <button
+                          onClick={stopSpeaking}
+                          disabled={!isAISpeaking}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                            isAISpeaking 
+                              ? 'bg-red-600 hover:bg-red-700 text-white' 
+                              : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                          }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          Stop AI
+                        </button>
+                        
+                        <button
+                          onClick={() => setTtsEnabled(!ttsEnabled)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                            ttsEnabled 
+                              ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                              : 'bg-gray-600 hover:bg-gray-700 text-white'
+                          }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          </svg>
+                          {ttsEnabled ? 'TTS On' : 'TTS Off'}
+                        </button>
+                        
+
+                      </div>
+
+                      {/* Voice Transcript Display */}
+                      {isListening && (
+                        <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                {transcript ? 'Review & Send' : 'Listening...'}
+                              </span>
+                            </div>
+                            <button
+                              onClick={clearTranscript}
+                              className="text-blue-600 hover:text-blue-800 text-sm"
+                            >
+                              ✕ Close
+                            </button>
+                          </div>
+                          
+                          <div className="text-sm text-blue-800 dark:text-blue-200 mb-3 p-2 bg-white dark:bg-blue-800/50 rounded border">
+                            {transcript || 'Start speaking... (transcript will appear here)'}
+                          </div>
+                          
+                          <div className="flex gap-2">
+                            <button
+                              onClick={sendVoiceMessage}
+                              disabled={!transcript.trim()}
+                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm transition-colors"
+                            >
+                              📤 Send Message
+                            </button>
+                            <button
+                              onClick={stopVoiceInteraction}
+                              className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                            >
+                              🎤 Listen Again
+                            </button>
+                          </div>
+                          
+                          {transcript && (
+                            <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                              💡 Tip: Review your message above, then click &quot;Send Message&quot;
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
                       <form onSubmit={(e) => { e.preventDefault(); sendMessage(inputValue); }} className="flex gap-3 mb-3">
                         <input
                           type="text"
@@ -1624,7 +2030,7 @@ if __name__ == "__main__":
                   </button>
                                      <button 
                      className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                     disabled={!isEditorReady || !testRun || testResults.length !== problem.testCases.length || submitState === 'submitting'}
+                     disabled={!isEditorReady || submitState === 'submitting'}
                      onClick={handleSubmit}
                    >
                      {submitState === 'submitting' ? (
@@ -1657,11 +2063,7 @@ if __name__ == "__main__":
                </h3>
                <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
                  Are you sure you want to end this interview session? This action cannot be undone.
-                 {showScore && score && (
-                   <span className="block mt-2 text-blue-600 dark:text-blue-400">
-                     📊 You&apos;ll be redirected to your detailed score and analysis.
-                   </span>
-                 )}
+
                </p>
                <div className="flex gap-3 justify-center">
                  <button
