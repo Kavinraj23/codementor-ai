@@ -3,25 +3,30 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-interface Interview {
-  _id: string;
-  userId: string;
-  problemTitle: string;
-  problemDifficulty: 'Easy' | 'Medium' | 'Hard';
-  language: string;
-  code: string;
-  score: {
-    correctness: number;
-    efficiency: number;
-    codeStyle: number;
-    communication: number;
-    overall: number;
-  };
-  feedback: string;
-  duration: number;
-  status: 'completed' | 'in-progress' | 'abandoned';
-  createdAt: string;
-  updatedAt: string;
+interface InterviewSession {
+  sessionId: string;
+  problemId: number;
+  startTime: Date;
+  endTime?: Date;
+  duration: number; // in minutes
+  status: 'active' | 'completed' | 'abandoned';
+  currentCode: string;
+  testResults: Array<{
+    pass: boolean;
+    output: string;
+    input: string;
+    expected: unknown;
+    actual: unknown;
+  }>;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+  }>;
+  submittedAt?: Date;
+  aiEvaluation?: string;
+  elapsedTime: number; // in seconds
 }
 
 interface PaginationInfo {
@@ -33,34 +38,64 @@ interface PaginationInfo {
 }
 
 export default function Dashboard() {
-  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [sessions, setSessions] = useState<InterviewSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
-  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortBy, setSortBy] = useState('startTime');
   const [sortOrder, setSortOrder] = useState('desc');
 
-  const fetchInterviews = async (page: number = 1) => {
+  const fetchSessions = () => {
     try {
       setLoading(true);
-      const response = await fetch(
-        `/api/interviews?page=${page}&limit=10&sortBy=${sortBy}&sortOrder=${sortOrder}`
-      );
+      const storedSessions = localStorage.getItem('interviewSessions');
+      let allSessions: InterviewSession[] = [];
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch interviews');
+      if (storedSessions) {
+        allSessions = JSON.parse(storedSessions).map((session: any) => ({
+          ...session,
+          startTime: new Date(session.startTime),
+          endTime: session.endTime ? new Date(session.endTime) : undefined,
+          submittedAt: session.submittedAt ? new Date(session.submittedAt) : undefined,
+        }));
       }
 
-      const result = await response.json();
+      // Sort sessions
+      allSessions.sort((a, b) => {
+        const aValue = a[sortBy as keyof InterviewSession];
+        const bValue = b[sortBy as keyof InterviewSession];
+        
+        if (aValue instanceof Date && bValue instanceof Date) {
+          return sortOrder === 'asc' ? aValue.getTime() - bValue.getTime() : bValue.getTime() - aValue.getTime();
+        }
+        
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        }
+        
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+        
+        return 0;
+      });
+
+      // Pagination
+      const pageSize = 10;
+      const startIndex = (currentPage - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedSessions = allSessions.slice(startIndex, endIndex);
       
-      if (result.success) {
-        setInterviews(result.data.interviews);
-        setPagination(result.data.pagination);
-        setCurrentPage(page);
-      } else {
-        throw new Error(result.error || 'Failed to fetch interviews');
-      }
+      setSessions(paginatedSessions);
+      setPagination({
+        currentPage,
+        totalPages: Math.ceil(allSessions.length / pageSize),
+        totalCount: allSessions.length,
+        hasNextPage: endIndex < allSessions.length,
+        hasPrevPage: currentPage > 1,
+      });
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -69,8 +104,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchInterviews(1);
-  }, [sortBy, sortOrder]);
+    fetchSessions();
+  }, [currentPage, sortBy, sortOrder]);
 
   const handleSort = (field: string) => {
     if (sortBy === field) {
