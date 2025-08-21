@@ -155,10 +155,21 @@ export class InterviewScorer {
 
     // Analyze communication
     let communication = 6;
-    if (lowerEvaluation.includes('excellent communication') || lowerEvaluation.includes('well documented')) communication = 9;
-    else if (lowerEvaluation.includes('good communication')) communication = 7;
-    else if (lowerEvaluation.includes('poor communication') || lowerEvaluation.includes('unclear')) communication = 4;
-    else if (lowerEvaluation.includes('no communication')) communication = 2;
+    if (lowerEvaluation.includes('excellent communication') || lowerEvaluation.includes('well documented') || 
+        lowerEvaluation.includes('clear comments') || lowerEvaluation.includes('descriptive naming') ||
+        lowerEvaluation.includes('good documentation') || lowerEvaluation.includes('self-documenting code')) {
+      communication = 9;
+    } else if (lowerEvaluation.includes('good communication') || lowerEvaluation.includes('adequate comments') ||
+               lowerEvaluation.includes('reasonable naming') || lowerEvaluation.includes('some documentation')) {
+      communication = 7;
+    } else if (lowerEvaluation.includes('poor communication') || lowerEvaluation.includes('unclear') ||
+               lowerEvaluation.includes('unclear naming') || lowerEvaluation.includes('lack of comments') ||
+               lowerEvaluation.includes('poor documentation')) {
+      communication = 4;
+    } else if (lowerEvaluation.includes('no communication') || lowerEvaluation.includes('no comments') ||
+               lowerEvaluation.includes('confusing names') || lowerEvaluation.includes('no documentation')) {
+      communication = 2;
+    }
 
     return {
       codeQuality,
@@ -208,7 +219,9 @@ export class InterviewScorer {
       feedback.push("Focus on writing bug-free, robust code");
     }
     if (scores.communication < 6) {
-      feedback.push("Add comments and clear variable names");
+      feedback.push("Improve code communication through better comments, naming, and documentation");
+      feedback.push("Add docstrings to explain function purpose and parameters");
+      feedback.push("Use descriptive variable and function names");
     }
 
     // Context-specific feedback

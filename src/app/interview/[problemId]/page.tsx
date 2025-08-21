@@ -667,7 +667,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
     const hintMessage = {
       id: Date.now().toString(),
       role: 'user' as const,
-      content: `I'm working on ${problem.title} (${problem.difficulty} difficulty) and I'd like a hint. Here's my current code:\n\n\`\`\`python\n${code}\n\`\`\`\n\nCan you provide me with a helpful hint or direction to move forward? Please don't give me the complete solution, just guide me in the right direction. Focus on:\n• What approach I should consider for this specific problem\n• Any specific data structures or algorithms that might help\n• Common pitfalls to avoid\n• Next logical step in my current implementation\n\nAfter giving me the hint, please ask me what I think the next step should be so I can continue working on the solution.`,
+      content: `I'm working on ${problem.title} (${problem.difficulty} difficulty) and I'd like a hint. Here's my current code:\n\n\`\`\`python\n${code}\n\`\`\`\n\nIMPORTANT: I do NOT want a solution or working code. I only want:\n• Conceptual guidance about what to think about\n• General approaches to consider (without specifics)\n• Questions to help me think through the problem\n• Common pitfalls to be aware of\n• What data structures or concepts might be relevant\n\nPlease give me a brief hint (2-3 sentences max) and then ask me a question to help me think further. Do NOT show me how to implement anything or provide any working code.`,
       timestamp: new Date().toISOString(),
     };
     
