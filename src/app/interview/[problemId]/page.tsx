@@ -77,6 +77,9 @@ export default function InterviewPage({ params }: InterviewPageProps) {
    const [isListening, setIsListening] = useState(false);
    const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
    const [transcript, setTranscript] = useState('');
+   const [recognitionError, setRecognitionError] = useState<string | null>(null);
+   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+   const [recordingDuration, setRecordingDuration] = useState<number>(0);
 
      useEffect(() => {
      const problemId = parseInt(resolvedParams.problemId);
@@ -195,7 +198,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
            
            if (SpeechRecognition) {
              const recognition = new SpeechRecognition();
-             recognition.continuous = false;
+             recognition.continuous = true; // Keep recording continuously until manually stopped
              recognition.interimResults = true;
              recognition.lang = 'en-US';
              recognition.maxAlternatives = 1;
@@ -203,7 +206,8 @@ export default function InterviewPage({ params }: InterviewPageProps) {
              // Event handlers
              recognition.onstart = () => {
                setIsListening(true);
-               console.log('Speech recognition started');
+               setRecognitionError(null);
+               console.log('Speech recognition started - will continue until manually stopped');
              };
              
              recognition.onresult = (event) => {
@@ -214,21 +218,22 @@ export default function InterviewPage({ params }: InterviewPageProps) {
              };
              
              recognition.onend = () => {
-               // Don't immediately stop listening - give user time to review transcript
                console.log('Speech recognition ended');
-               // Keep transcript visible for a few seconds
-               setTimeout(() => {
+               // Only stop listening if it wasn't manually stopped
+               if (isListening) {
                  setIsListening(false);
-               }, 3000); // 3 second delay
+                 console.log('Speech recognition auto-stopped - this should not happen with continuous mode');
+               }
              };
              
-             recognition.onerror = (event) => {
-               setIsListening(false);
+             recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
                console.error('Speech recognition error:', event);
+               setRecognitionError(`Microphone error: ${event.error}`);
+               setIsListening(false);
              };
              
              setRecognition(recognition);
-             console.log('Speech recognition initialized');
+             console.log('Speech recognition initialized with continuous mode');
            } else {
              console.log('Speech recognition not supported');
            }
@@ -243,6 +248,20 @@ export default function InterviewPage({ params }: InterviewPageProps) {
        }
      };
    }, [speechSynthesis]);
+
+   // Cleanup Speech Recognition on unmount
+   useEffect(() => {
+     return () => {
+       if (recognition) {
+         try {
+           recognition.stop();
+           recognition.abort();
+         } catch (error) {
+           console.error('Error cleaning up speech recognition:', error);
+         }
+       }
+     };
+   }, [recognition]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -346,6 +365,18 @@ export default function InterviewPage({ params }: InterviewPageProps) {
           return () => clearInterval(timer);
         }, [isSessionActive]);
 
+   // Recording duration timer
+   useEffect(() => {
+     if (!isListening || !recordingStartTime) return;
+     
+     const timer = setInterval(() => {
+       const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
+       setRecordingDuration(duration);
+     }, 1000);
+     
+     return () => clearInterval(timer);
+   }, [isListening, recordingStartTime]);
+
      // Microphone permission handlers
    const handleMicrophonePermissionGranted = () => {
      setHasMicrophonePermission(true);
@@ -370,12 +401,19 @@ export default function InterviewPage({ params }: InterviewPageProps) {
        console.log('Stopped AI speech to start voice chat');
      }
      
+     // Reset error state and start recording timer
+     setRecognitionError(null);
+     setRecordingStartTime(Date.now());
+     setRecordingDuration(0);
+     setTranscript('');
+     
      try {
        recognition.start();
-       setTranscript('');
-       console.log('Started voice recognition');
+       console.log('Started voice recognition - will continue until manually stopped');
      } catch (error) {
        console.error('Error starting speech recognition:', error);
+       setRecognitionError('Failed to start microphone');
+       setRecordingStartTime(null);
      }
    };
 
@@ -383,21 +421,29 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      if (recognition) {
        recognition.stop();
        console.log('Stopped voice recognition manually');
+       // Keep the transcript visible for review
+       // Don't reset transcript here - let user review and send
      }
    };
+
+
 
    const sendVoiceMessage = () => {
      if (transcript.trim()) {
        console.log('Sending voice message:', transcript);
        sendMessage(transcript);
        setTranscript('');
-       setIsListening(false); // Close transcript box after sending
+       setIsListening(false);
+       setRecordingStartTime(null);
+       setRecordingDuration(0);
      }
    };
 
    const clearTranscript = () => {
      setTranscript('');
      setIsListening(false);
+     setRecordingStartTime(null);
+     setRecordingDuration(0);
    };
 
    // TTS Functions
@@ -1198,6 +1244,17 @@ if __name__ == "__main__":
       </div>
     );
 
+    // Debug panel for microphone status
+    const renderMicrophoneDebug = () => (
+      <div style={{ position: 'fixed', bottom: 0, left: 0, background: '#222', color: '#fff', padding: 12, zIndex: 9999, fontSize: 12, borderRadius: 8, opacity: 0.9 }}>
+        <div><b>🎤 Microphone Debug</b></div>
+        <div>Status: {isListening ? '🟢 Recording' : '🔴 Ready'}</div>
+        <div>Duration: {recordingDuration}s</div>
+        <div>Error: {recognitionError || 'None'}</div>
+        <div>Recognition: {recognition ? '✅ Available' : '❌ Not available'}</div>
+      </div>
+    );
+
   return (
     <div className="h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex flex-col overflow-hidden">
              {/* Header */}
@@ -1675,6 +1732,46 @@ if __name__ == "__main__":
                          >
                            🎤 Speak Welcome
                          </button>
+                         
+
+                       </div>
+                       
+                       {/* Microphone Status and Error Display */}
+                       {recognitionError && (
+                         <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                           <div className="flex items-center justify-between">
+                             <div className="flex items-center gap-2">
+                               <span className="text-red-500">⚠️</span>
+                               <span className="text-red-700 dark:text-red-300 text-sm font-medium">
+                                 {recognitionError}
+                               </span>
+                             </div>
+                             <button
+                               onClick={() => setRecognitionError(null)}
+                               className="text-red-600 hover:text-red-800 text-sm"
+                             >
+                               ✕
+                             </button>
+                           </div>
+
+                         </div>
+                       )}
+                       
+                       {/* Microphone Status Info */}
+                       <div className="mt-2 flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
+                         <div className="flex items-center gap-1">
+                           <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                           <span>Microphone: {isListening ? 'Recording' : 'Ready'}</span>
+                           {isListening && recordingDuration > 0 && (
+                             <span className="text-green-600 dark:text-green-400">
+                               ({recordingDuration}s)
+                             </span>
+                           )}
+                         </div>
+                         <div className="flex items-center gap-1">
+                           <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                           <span>Voice Chat: Manual Control</span>
+                         </div>
                        </div>
                        
                        {/* Transcript Summary */}
@@ -1787,7 +1884,7 @@ if __name__ == "__main__":
                       <div className="flex items-center justify-center gap-3 mb-3">
                         <button
                           onClick={isListening ? stopVoiceInteraction : startVoiceInteraction}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                          className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors font-medium ${
                             isListening 
                               ? 'bg-red-600 hover:bg-red-700 text-white' 
                               : 'bg-green-600 hover:bg-green-700 text-white'
@@ -1796,13 +1893,13 @@ if __name__ == "__main__":
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                           </svg>
-                          {isListening ? 'Stop Listening' : 'Start Voice Chat'}
+                          {isListening ? 'Stop Recording' : 'Start Recording'}
                         </button>
                         
                         <button
                           onClick={stopSpeaking}
                           disabled={!isAISpeaking}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                          className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-colors ${
                             isAISpeaking 
                               ? 'bg-red-600 hover:bg-red-700 text-white' 
                               : 'bg-gray-400 text-gray-200 cursor-not-allowed'
@@ -1816,7 +1913,7 @@ if __name__ == "__main__":
                         
                         <button
                           onClick={() => setTtsEnabled(!ttsEnabled)}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                          className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-colors ${
                             ttsEnabled 
                               ? 'bg-blue-600 hover:bg-blue-700 text-white' 
                               : 'bg-gray-600 hover:bg-gray-700 text-white'
@@ -1828,7 +1925,35 @@ if __name__ == "__main__":
                           {ttsEnabled ? 'TTS On' : 'TTS Off'}
                         </button>
                         
-
+                        {/* Manual Microphone Restart Button */}
+                        <button
+                          onClick={() => {
+                            if (recognition) {
+                              try {
+                                recognition.stop();
+                                setTimeout(() => {
+                                  try {
+                                    recognition.start();
+                                    setRecognitionError(null);
+                                  } catch (error) {
+                                    console.error('Failed to restart microphone:', error);
+                                    setRecognitionError('Failed to restart microphone');
+                                  }
+                                }, 500);
+                              } catch (error) {
+                                console.error('Failed to stop microphone:', error);
+                              }
+                            }
+                          }}
+                          disabled={!recognition}
+                          className="flex items-center gap-2 px-4 py-3 rounded-lg transition-colors bg-orange-600 hover:bg-orange-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                          title="Manually restart microphone if it stops working"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Restart Mic
+                        </button>
                       </div>
 
                       {/* Voice Transcript Display */}
@@ -1836,36 +1961,35 @@ if __name__ == "__main__":
                         <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
                               <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                                {transcript ? 'Review & Send' : 'Listening...'}
+                                {transcript ? 'Recording - Review Your Message' : 'Recording...'}
                               </span>
+                              {recordingDuration > 0 && (
+                                <span className="text-xs text-blue-600 dark:text-blue-400">
+                                  ({recordingDuration}s)
+                                </span>
+                              )}
                             </div>
                             <button
                               onClick={clearTranscript}
                               className="text-blue-600 hover:text-blue-800 text-sm"
                             >
-                              ✕ Close
+                              ✕ Clear
                             </button>
                           </div>
                           
-                          <div className="text-sm text-blue-800 dark:text-blue-200 mb-3 p-2 bg-white dark:bg-blue-800/50 rounded border">
-                            {transcript || 'Start speaking... (transcript will appear here)'}
+                          <div className="text-sm text-blue-800 dark:text-blue-200 mb-3 p-2 bg-white dark:bg-blue-800/50 rounded border min-h-[3rem] flex items-center">
+                            {transcript || 'Start speaking... (your message will appear here)'}
                           </div>
                           
                           <div className="flex gap-2">
                             <button
                               onClick={sendVoiceMessage}
                               disabled={!transcript.trim()}
-                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1 rounded text-sm transition-colors"
+                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm transition-colors font-medium"
                             >
                               📤 Send Message
-                            </button>
-                            <button
-                              onClick={stopVoiceInteraction}
-                              className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm transition-colors"
-                            >
-                              🎤 Listen Again
                             </button>
                           </div>
                           
@@ -2049,6 +2173,7 @@ if __name__ == "__main__":
         </div>
       </div>
                              {renderJudge0Debug()}
+                             {renderMicrophoneDebug()}
  
        {/* End Interview Confirmation Modal */}
        {showEndInterviewModal && (

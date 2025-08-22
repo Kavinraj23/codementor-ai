@@ -8,24 +8,40 @@ declare global {
   
   interface SpeechRecognition extends EventTarget {
     continuous: boolean;
-    grammars: any;
+    grammars: SpeechGrammarList | null;
     interimResults: boolean;
     lang: string;
     maxAlternatives: number;
-    onaudioend: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onaudiostart: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onend: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onerror: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onnomatch: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-    onsoundend: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onsoundstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onspeechend: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onspeechstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-    onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
+    onaudioend: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onaudiostart: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onend: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => void) | null;
+    onnomatch: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void) | null;
+    onsoundend: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onsoundstart: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onspeechend: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onspeechstart: ((this: SpeechRecognition, ev: Event) => void) | null;
+    onstart: ((this: SpeechRecognition, ev: Event) => void) | null;
     start(): void;
     stop(): void;
     abort(): void;
+  }
+
+  interface SpeechGrammarList {
+    length: number;
+    item(index: number): SpeechGrammar;
+    [index: number]: SpeechGrammar;
+  }
+
+  interface SpeechGrammar {
+    src: string;
+    weight: number;
+  }
+
+  interface SpeechRecognitionErrorEvent extends Event {
+    error: string;
+    message?: string;
   }
 
   interface SpeechRecognitionEvent extends Event {
