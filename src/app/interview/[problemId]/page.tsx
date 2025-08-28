@@ -1,12 +1,24 @@
 'use client';
 
-import { useState, useEffect, use, useRef } from 'react';
+import { useState, useEffect, use, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Editor from '@monaco-editor/react';
 import { getProblemById, Problem } from '@/data/problems';
 import { getFullPythonCode, getPythonTemplate } from '@/data/pythonTemplates';
 import ChatMessageRenderer from '@/components/ChatMessageRenderer';
 import MicrophonePermission from '@/components/MicrophonePermission';
+import { 
+  createSession, 
+  getSession, 
+  updateSession, 
+  deleteSession,
+  saveSessionToStorage,
+  getSessionFromStorage,
+  clearSessionFromStorage,
+  debounce,
+  calculatePerformanceMetrics,
+  type SessionData
+} from '@/lib/sessionManager';
 
 
 
@@ -41,6 +53,8 @@ export default function InterviewPage({ params }: InterviewPageProps) {
                 const [elapsedTime, setElapsedTime] = useState<number>(0); // in seconds
                 const [isSessionActive, setIsSessionActive] = useState(false);
                 const [showEndInterviewModal, setShowEndInterviewModal] = useState(false);
+                const [isSessionLoading, setIsSessionLoading] = useState(false);
+                const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
    
    // Chat state
    const [messages, setMessages] = useState<Array<{
@@ -98,11 +112,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
        const starterCode = getFullPythonCode(problemId);
        setCode(starterCode);
  
-       // Initialize interview session
-       const sessionId = `session_${Date.now()}_${problemId}`;
-       setSessionId(sessionId);
-       setSessionStartTime(new Date());
-       setIsSessionActive(true);
+       // Initialize interview session will be handled by initializeSession function
        
                        // Set default duration based on difficulty (in minutes) - for reference only
                 let defaultDuration = 30; // 30 minutes default
@@ -163,6 +173,8 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      
      setLoading(false);
    }, [resolvedParams.problemId]);
+
+
 
    // Initialize TTS and STT when component mounts
    useEffect(() => {
@@ -296,74 +308,200 @@ export default function InterviewPage({ params }: InterviewPageProps) {
    }, [activeTab]);
  
    // Session management functions
-                   const handleEndInterview = async (reason: 'manual' | 'completion') => {
-                  if (!isSessionActive || !problem) return;
-                
-                  setIsSessionActive(false);
-                  const endTime = new Date();
-                  
-                  // Save session data
-                  const sessionData = {
-                    sessionId,
-                    problemId: problem.id,
-                    startTime: sessionStartTime,
-                    endTime,
-                    duration: Math.ceil((endTime.getTime() - (sessionStartTime?.getTime() || 0)) / (1000 * 60)), // in minutes
-                    status: (reason === 'completion' || submitState === 'success') ? 'completed' : 'incomplete',
-                    currentCode: code,
-                    testResults,
-                    messages,
-                    submittedAt: submitState === 'success' ? new Date() : undefined,
-                    aiEvaluation: (reason === 'completion' || submitState === 'success') ? 'AI evaluation completed' : undefined,
-                    elapsedTime,
+   const initializeSession = useCallback(async () => {
+     if (!problem) return;
+     
+     try {
+       setIsSessionLoading(true);
+       
+       // Check if there's an existing session in localStorage
+       const existingSessionId = getSessionFromStorage();
+       
+       if (existingSessionId) {
+         // Try to restore existing session
+         const existingSession = await getSession(existingSessionId);
+         
+         if (existingSession && existingSession.problemId === problem.id) {
+           // Restore session
+           setSessionId(existingSession.sessionId);
+           setCode(existingSession.currentCode);
+           setTestResults(existingSession.testResults);
+           setMessages(existingSession.messages);
+           setElapsedTime(existingSession.elapsedTime);
+           setIsSessionActive(true);
+           setSessionStartTime(new Date(Date.now() - existingSession.elapsedTime * 1000));
+           console.log('Session restored:', existingSession.sessionId);
+           return;
+         } else {
+           // Clear invalid session
+           clearSessionFromStorage();
+         }
+       }
+       
+       // Create new session
+       const newSessionId = await createSession({
+         problemId: problem.id,
+         problemTitle: problem.title,
+         problemDifficulty: problem.difficulty,
+         currentCode: code,
+         testResults: [],
+         messages: [],
+         elapsedTime: 0,
+         status: 'active'
+       });
+       
+       setSessionId(newSessionId);
+       saveSessionToStorage(newSessionId);
+       setIsSessionActive(true);
+       setSessionStartTime(new Date());
+       console.log('New session created:', newSessionId);
+       
+     } catch (error) {
+       console.error('Error initializing session:', error);
+       // Fallback to local session without persistence
+       setIsSessionActive(true);
+       setSessionStartTime(new Date());
+     } finally {
+       setIsSessionLoading(false);
+     }
+   }, [problem, code]);
 
-                    followUpQuestionsAsked,
-                    followUpQuestionsCount,
-                  };
-                
-                  try {
-                    // Save to localStorage for now (you can extend this to save to database)
-                    const existingSessions = JSON.parse(localStorage.getItem('interviewSessions') || '[]');
-                    existingSessions.push(sessionData);
-                    localStorage.setItem('interviewSessions', JSON.stringify(existingSessions));
-                
-                    // Show appropriate message based on reason
-                    let endMessage = '';
-                    if (reason === 'completion' || submitState === 'success') {
-                      endMessage = '🎉 Interview completed successfully!';
-                    } else {
-                      endMessage = '👋 Interview session ended.';
-                    }
-                
-                    // Add end message to chat
-                    const endMessageObj = {
-                      id: Date.now().toString(),
-                      role: 'assistant' as const,
-                      content: `${endMessage}\n\nSession Summary:\n• Duration: ${sessionData.duration} minutes\n• Status: ${sessionData.status}\n• Test Cases: ${testResults.filter(r => r.pass).length}/${testResults.length} passed\n• Messages: ${messages.length} exchanged`,
-                      timestamp: new Date().toISOString(),
-                    };
-                    setMessages(prev => [...prev, endMessageObj]);
-                
-                    // Redirect to dashboard after interview ends
-                    setTimeout(() => {
-                      window.location.href = '/dashboard';
-                    }, 1000); // 1 second delay to show the end message
-                
-                  } catch (error) {
-                    console.error('Error saving session:', error);
-                  }
-                };
+   // Auto-save session data
+   const autoSaveSession = useCallback(async () => {
+     if (!sessionId || !isSessionActive || !problem) return;
+     
+     try {
+       const performanceMetrics = calculatePerformanceMetrics(
+         testResults,
+         elapsedTime,
+         problem.difficulty
+       );
+       
+       await updateSession(sessionId, {
+         currentCode: code,
+         testResults,
+         messages,
+         elapsedTime,
+         performanceMetrics
+       });
+       
+       setLastSavedAt(new Date());
+       console.log('Session auto-saved');
+     } catch (error) {
+       console.error('Error auto-saving session:', error);
+     }
+   }, [sessionId, isSessionActive, problem, code, testResults, messages, elapsedTime]);
+
+   // Debounced auto-save
+   const debouncedAutoSave = useCallback(
+     debounce(autoSaveSession, 30000), // Save every 30 seconds
+     [autoSaveSession]
+   );
+
+   const handleEndInterview = async (reason: 'manual' | 'completion') => {
+     if (!isSessionActive || !problem) return;
+     
+     setIsSessionActive(false);
+     const endTime = new Date();
+     
+     try {
+       // Update session with final data
+       if (sessionId) {
+         const performanceMetrics = calculatePerformanceMetrics(
+           testResults,
+           elapsedTime,
+           problem.difficulty
+         );
+         
+         await updateSession(sessionId, {
+           status: (reason === 'completion' || submitState === 'success') ? 'completed' : 'incomplete',
+           endTime,
+           duration: Math.ceil((endTime.getTime() - (sessionStartTime?.getTime() || 0)) / (1000 * 60)),
+           submittedAt: submitState === 'success' ? new Date() : undefined,
+           aiEvaluation: (reason === 'completion' || submitState === 'success') ? 'AI evaluation completed' : undefined,
+           performanceMetrics
+         });
+         
+         // Clear session from storage
+         clearSessionFromStorage();
+       }
+       
+       // Show appropriate message based on reason
+       let endMessage = '';
+       if (reason === 'completion' || submitState === 'success') {
+         endMessage = '🎉 Interview completed successfully!';
+       } else {
+         endMessage = '👋 Interview session ended.';
+       }
+       
+       // Add end message to chat
+       const endMessageObj = {
+         id: Date.now().toString(),
+         role: 'assistant' as const,
+         content: `${endMessage}\n\nSession Summary:\n• Duration: ${Math.ceil((endTime.getTime() - (sessionStartTime?.getTime() || 0)) / (1000 * 1000))} minutes\n• Status: ${(reason === 'completion' || submitState === 'success') ? 'completed' : 'incomplete'}\n• Test Cases: ${testResults.filter(r => r.pass).length}/${testResults.length} passed\n• Messages: ${messages.length} exchanged`,
+         timestamp: new Date().toISOString(),
+       };
+       setMessages(prev => [...prev, endMessageObj]);
+       
+       // Redirect to dashboard after interview ends
+       setTimeout(() => {
+         window.location.href = '/dashboard';
+       }, 1000); // 1 second delay to show the end message
+       
+     } catch (error) {
+       console.error('Error ending session:', error);
+     }
+   };
  
+   // Session management effects
+   useEffect(() => {
+     if (problem && !isSessionActive) {
+       initializeSession();
+     }
+   }, [problem, isSessionActive, initializeSession]);
+
+   // Auto-save session periodically
+   useEffect(() => {
+     if (isSessionActive && sessionId) {
+       const interval = setInterval(() => {
+         debouncedAutoSave();
+       }, 30000); // Every 30 seconds
+       
+       return () => clearInterval(interval);
+     }
+   }, [isSessionActive, sessionId, debouncedAutoSave]);
+
+   // Auto-save on code changes
+   useEffect(() => {
+     if (isSessionActive && sessionId) {
+       debouncedAutoSave();
+     }
+   }, [code, isSessionActive, sessionId, debouncedAutoSave]);
+
+   // Auto-save on test results changes
+   useEffect(() => {
+     if (isSessionActive && sessionId) {
+       debouncedAutoSave();
+     }
+   }, [testResults, isSessionActive, sessionId, debouncedAutoSave]);
+
+   // Auto-save on messages changes
+   useEffect(() => {
+     if (isSessionActive && sessionId) {
+       debouncedAutoSave();
+     }
+   }, [messages, isSessionActive, sessionId, debouncedAutoSave]);
+
    // Timer effect
-           useEffect(() => {
-          if (!isSessionActive) return;
-        
-          const timer = setInterval(() => {
-            setElapsedTime(prev => prev + 1);
-          }, 1000);
-        
-          return () => clearInterval(timer);
-        }, [isSessionActive]);
+   useEffect(() => {
+     if (!isSessionActive) return;
+   
+     const timer = setInterval(() => {
+       setElapsedTime(prev => prev + 1);
+     }, 1000);
+   
+     return () => clearInterval(timer);
+   }, [isSessionActive]);
 
    // Recording duration timer
    useEffect(() => {
@@ -1271,14 +1409,39 @@ if __name__ == "__main__":
              </div>
              <div className="mt-3 md:mt-0 flex flex-col md:flex-row gap-3 items-center">
                {/* Timer Display */}
-                               {isSessionActive && (
-                  <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                      Elapsed Time: {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
-                    </span>
-                  </div>
-                )}
+               {isSessionActive && (
+                 <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800">
+                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                   <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                     Elapsed Time: {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+                   </span>
+                 </div>
+               )}
+               
+               {/* Session Status */}
+               {isSessionActive && (
+                 <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 px-3 py-2 rounded-lg border border-green-200 dark:border-green-800">
+                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                   <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                     Session Active
+                   </span>
+                   {lastSavedAt && (
+                     <span className="text-xs text-green-600 dark:text-green-400">
+                       • Saved {Math.floor((Date.now() - lastSavedAt.getTime()) / 1000)}s ago
+                     </span>
+                   )}
+                 </div>
+               )}
+               
+               {/* Session Loading */}
+               {isSessionLoading && (
+                 <div className="flex items-center gap-2 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                   <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                   <span className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                     Loading Session...
+                   </span>
+                 </div>
+               )}
                
                {/* End Interview Button */}
                {isSessionActive && (
