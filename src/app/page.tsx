@@ -1,6 +1,14 @@
 import Link from "next/link";
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
-export default function Home() {
+export default async function Home() {
+  const { userId } = await auth();
+  
+  // If user is signed in, redirect to dashboard
+  if (userId) {
+    redirect('/dashboard');
+  }
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <div className="container mx-auto px-4 py-8 md:py-16">
@@ -92,21 +100,21 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
-              href="/problem-select"
+              href="/sign-up"
               className="inline-flex items-center bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-6 md:py-4 lg:py-5 md:px-8 lg:px-12 rounded-lg md:rounded-xl transition-all duration-300 shadow-lg md:shadow-xl hover:shadow-xl md:hover:shadow-2xl md:hover:scale-105 text-base md:text-lg lg:text-xl"
             >
-              Start Your First Interview
+              Get Started
               <svg className="w-4 h-4 md:w-5 md:h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5-5 5M6 12h12" />
               </svg>
             </Link>
             <Link
-              href="/dashboard"
+              href="/sign-in"
               className="inline-flex items-center bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-bold py-3 px-6 md:py-4 lg:py-5 md:px-8 lg:px-12 rounded-lg md:rounded-xl transition-all duration-300 shadow-lg md:shadow-xl hover:shadow-xl md:hover:shadow-2xl md:hover:scale-105 text-base md:text-lg lg:text-xl border-2 border-gray-200 dark:border-gray-600"
             >
-              View Dashboard
+              Sign In
               <svg className="w-4 h-4 md:w-5 md:h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </Link>
           </div>

@@ -69,6 +69,7 @@ export default function MicrophonePermission({ onPermissionGranted, onPermission
            console.log('No microphone found on device');
          } else if (error.name === 'NotReadableError') {
            console.log('Microphone is in use by another application');
+           setRecognitionError('Microphone is currently in use. Please close other applications using the microphone and try again.');
          }
        }
        

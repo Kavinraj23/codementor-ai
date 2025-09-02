@@ -21,6 +21,17 @@ export interface SessionData {
   }>;
   elapsedTime: number;
   status: 'active' | 'completed' | 'incomplete';
+  performanceMetrics?: {
+    testCasesPassed: number;
+    totalTestCases: number;
+    successRate: number;
+    timeEfficiency: number;
+    codeQuality: number;
+  };
+  endTime?: Date;
+  duration?: number;
+  submittedAt?: Date;
+  aiEvaluation?: string;
 }
 
 // Create new session
@@ -74,7 +85,9 @@ export async function updateSession(sessionId: string, updates: Partial<SessionD
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to update session: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Update session failed:', errorText);
+      throw new Error(`Failed to update session: ${response.statusText} - ${errorText}`);
     }
   } catch (error) {
     console.error('Error updating session:', error);
@@ -121,7 +134,7 @@ export function clearSessionFromStorage(): void {
 }
 
 // Auto-save utilities
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {

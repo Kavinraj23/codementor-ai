@@ -95,6 +95,71 @@ export default function InterviewPage({ params }: InterviewPageProps) {
    const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
    const [recordingDuration, setRecordingDuration] = useState<number>(0);
 
+   // Load existing session by sessionId
+   const loadExistingSession = useCallback(async (sessionId: string) => {
+     try {
+       setIsSessionLoading(true);
+       const existingSession = await getSession(sessionId);
+       
+       if (existingSession && existingSession.problemId === problem?.id) {
+         // Load existing session data
+         setSessionId(existingSession.sessionId);
+         setCode(existingSession.currentCode);
+         setTestResults(existingSession.testResults);
+         
+         // Load messages with fallback
+         const sessionMessages = existingSession.messages || [];
+         if (sessionMessages.length === 0) {
+           // If no messages found, add a welcome message for view mode
+           const viewModeWelcomeMessage = {
+             id: 'view-mode-welcome',
+             role: 'assistant' as const,
+             content: `Welcome to your completed interview session for **${problem?.title}**! 🎉\n\nThis is a view-only mode where you can:\n\n• Review your completed solution\n• Ask follow-up questions about the problem\n• Get explanations of concepts and approaches\n• Discuss time/space complexity\n• Explore alternative solutions\n• Learn from your interview experience\n\n💬 Feel free to ask any questions about the problem, your solution, or coding concepts in general!`,
+             timestamp: new Date().toISOString(),
+           };
+           setMessages([viewModeWelcomeMessage]);
+         } else {
+           // Check if the first message is the original interview welcome message and replace it
+           const firstMessage = sessionMessages[0];
+           const isOriginalWelcomeMessage = firstMessage?.content?.includes('Welcome to your voice-enabled coding interview') ||
+                                           firstMessage?.content?.includes('Take your time and work through the problem step by step');
+           
+           if (isOriginalWelcomeMessage) {
+             // Replace the first message with view mode welcome
+             const viewModeWelcomeMessage = {
+               id: 'view-mode-welcome',
+               role: 'assistant' as const,
+               content: `Welcome to your completed interview session for **${problem?.title}**! 🎉\n\nThis is a view-only mode where you can:\n\n• Review your completed solution\n• Ask follow-up questions about the problem\n• Get explanations of concepts and approaches\n• Discuss time/space complexity\n• Explore alternative solutions\n• Learn from your interview experience\n\n💬 Feel free to ask any questions about the problem, your solution, or coding concepts in general!`,
+               timestamp: new Date().toISOString(),
+             };
+             
+             // Replace first message and keep the rest
+             const updatedMessages = [viewModeWelcomeMessage, ...sessionMessages.slice(1)];
+             setMessages(updatedMessages);
+           } else {
+             setMessages(sessionMessages);
+           }
+         }
+         
+         setElapsedTime(existingSession.elapsedTime);
+         setIsSessionActive(false); // Set to false for view-only mode
+         setSessionStartTime(new Date(Date.now() - existingSession.elapsedTime * 1000));
+         console.log('Existing session loaded for viewing:', existingSession.sessionId, 'isSessionActive set to false');
+         console.log('Loaded messages:', sessionMessages.length, 'messages');
+         console.log('Messages content:', sessionMessages);
+         return true;
+       } else {
+         console.error('Session not found or problem mismatch');
+         return false;
+       }
+     } catch (error) {
+       console.error('Error loading existing session:', error);
+       return false;
+     } finally {
+       setIsSessionLoading(false);
+     }
+   }, [problem]);
+
      useEffect(() => {
      const problemId = parseInt(resolvedParams.problemId);
      
@@ -108,71 +173,85 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      
      if (foundProblem) {
        setProblem(foundProblem);
-       // Load Python starter code for this problem
-       const starterCode = getFullPythonCode(problemId);
-       setCode(starterCode);
- 
-       // Initialize interview session will be handled by initializeSession function
        
-                       // Set default duration based on difficulty (in minutes) - for reference only
-                let defaultDuration = 30; // 30 minutes default
-                if (foundProblem.difficulty === 'Easy') defaultDuration = 20;
-                else if (foundProblem.difficulty === 'Medium') defaultDuration = 45;
-                else if (foundProblem.difficulty === 'Hard') defaultDuration = 60;
-                
-                setElapsedTime(0); // Start stopwatch at 0
- 
-                       // Initialize chat with welcome message
-                const welcomeMessage = {
-                  id: 'welcome',
-                  role: 'assistant' as const,
-                  content: `Welcome to your voice-enabled coding interview! I'm here to help guide you through solving **${foundProblem.title}**.\n\n🎤 This interview uses voice interaction to evaluate your communication skills.\n\n• Think out loud about your approach\n• Ask questions about the problem\n• Request hints if you get stuck\n• Discuss time/space complexity\n\n💬 You can also type your responses if needed.\n\nTake your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!`,
-                  timestamp: new Date().toISOString(),
-                };
-       setMessages([welcomeMessage]);
+       // Check if we're viewing an existing session
+       const urlParams = new URLSearchParams(window.location.search);
+       const sessionId = urlParams.get('sessionId');
        
-       // Speak the welcome message after TTS is initialized
-       setTimeout(() => {
-         if (speechSynthesis) {
-           const cleanText = welcomeMessage.content
-             .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-             .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markers
-             .replace(/\*(.*?)\*/g, '$1') // Remove italic markers
-             .replace(/`([^`]+)`/g, '$1') // Remove inline code
-             .replace(/\n/g, ' ') // Replace newlines with spaces
-             .trim();
-           
-           if (cleanText) {
-             console.log('Speaking welcome message:', cleanText);
-             speakText(cleanText);
+       if (sessionId) {
+         // Load existing session for viewing
+         loadExistingSession(sessionId).then((success) => {
+           if (!success) {
+             // Fallback to new session if loading fails
+             const starterCode = getFullPythonCode(problemId);
+             setCode(starterCode);
+             setElapsedTime(0);
+             
+             // Initialize chat with welcome message
+             const welcomeMessage = {
+               id: 'welcome',
+               role: 'assistant' as const,
+               content: `Welcome to your voice-enabled coding interview! I'm here to help guide you through solving **${foundProblem.title}**.\n\n🎤 This interview uses voice interaction to evaluate your communication skills.\n\n• Think out loud about your approach\n• Ask questions about the problem\n• Request hints if you get stuck\n• Discuss time/space complexity\n\n💬 You can also type your responses if needed.\n\nTake your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!`,
+               timestamp: new Date().toISOString(),
+             };
+             setMessages([welcomeMessage]);
+           } else {
+             // Successfully loaded existing session - don't override messages
+             console.log('Successfully loaded existing session, keeping original messages');
            }
-         } else {
-           console.log('TTS not ready yet, retrying...');
-           // Retry after another delay if TTS still not ready
-           setTimeout(() => {
-             if (speechSynthesis) {
-               const cleanText = welcomeMessage.content
-                 .replace(/```[\s\S]*?```/g, '')
-                 .replace(/\*\*(.*?)\*\*/g, '$1')
-                 .replace(/\*(.*?)\*/g, '$1')
-                 .replace(/`([^`]+)`/g, '$1')
-                 .replace(/\n/g, ' ')
-                 .trim();
-               
-               if (cleanText) {
-                 console.log('Speaking welcome message (retry):', cleanText);
-                 speakText(cleanText);
-               }
+           setLoading(false);
+         });
+       } else {
+         // Load Python starter code for this problem
+         const starterCode = getFullPythonCode(problemId);
+         setCode(starterCode);
+ 
+         // Initialize interview session will be handled by initializeSession function
+         
+         // Set default duration based on difficulty (in minutes) - for reference only
+         let defaultDuration = 30; // 30 minutes default
+         if (foundProblem.difficulty === 'Easy') defaultDuration = 20;
+         else if (foundProblem.difficulty === 'Medium') defaultDuration = 45;
+         else if (foundProblem.difficulty === 'Hard') defaultDuration = 60;
+         
+         setElapsedTime(0); // Start stopwatch at 0
+ 
+         // Initialize chat with welcome message
+         const welcomeMessage = {
+           id: 'welcome',
+           role: 'assistant' as const,
+           content: `Welcome to your voice-enabled coding interview! I'm here to help guide you through solving **${foundProblem.title}**.\n\n🎤 This interview uses voice interaction to evaluate your communication skills.\n\n• Think out loud about your approach\n• Ask questions about the problem\n• Request hints if you get stuck\n• Discuss time/space complexity\n\n💬 You can also type your responses if needed.\n\nTake your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!`,
+           timestamp: new Date().toISOString(),
+         };
+         setMessages([welcomeMessage]);
+         
+         // Speak the welcome message after TTS is initialized (only if TTS is enabled)
+         setTimeout(() => {
+           if (speechSynthesis && ttsEnabled) {
+             const cleanText = welcomeMessage.content
+               .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+               .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markers
+               .replace(/\*(.*?)\*/g, '$1') // Remove italic markers
+               .replace(/`([^`]+)`/g, '$1') // Remove inline code
+               .replace(/\n/g, ' ') // Replace newlines with spaces
+               .trim();
+             
+             if (cleanText) {
+               console.log('Speaking welcome message:', cleanText);
+               speakText(cleanText);
              }
-           }, 3000);
-         }
-       }, 2000); // Longer delay to ensure TTS is fully initialized
+           } else {
+             console.log('TTS not ready or disabled, skipping welcome message');
+           }
+         }, 2000); // Longer delay to ensure TTS is fully initialized
+         
+         setLoading(false);
+       }
      } else {
        setError(`Problem with ID ${problemId} not found`);
+       setLoading(false);
      }
-     
-     setLoading(false);
-   }, [resolvedParams.problemId]);
+   }, [resolvedParams.problemId, loadExistingSession]);
 
 
 
@@ -231,16 +310,29 @@ export default function InterviewPage({ params }: InterviewPageProps) {
              
              recognition.onend = () => {
                console.log('Speech recognition ended');
-               // Only stop listening if it wasn't manually stopped
-               if (isListening) {
-                 setIsListening(false);
-                 console.log('Speech recognition auto-stopped - this should not happen with continuous mode');
-               }
+               // Always update the listening state when recognition ends
+               setIsListening(false);
+               console.log('Speech recognition ended - listening state updated');
              };
              
              recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
                console.error('Speech recognition error:', event);
-               setRecognitionError(`Microphone error: ${event.error}`);
+               
+               // Handle specific error types
+               let errorMessage = `Microphone error: ${event.error}`;
+               if (event.error === 'not-allowed') {
+                 errorMessage = 'Microphone access denied. Please allow microphone access in your browser settings.';
+               } else if (event.error === 'no-speech') {
+                 errorMessage = 'No speech detected. Please try speaking again.';
+               } else if (event.error === 'audio-capture') {
+                 errorMessage = 'Microphone is in use by another application. Please close other apps using the microphone.';
+               } else if (event.error === 'network') {
+                 errorMessage = 'Network error. Please check your internet connection.';
+               } else if (event.error === 'service-not-allowed') {
+                 errorMessage = 'Speech recognition service not allowed. Please refresh the page and try again.';
+               }
+               
+               setRecognitionError(errorMessage);
                setIsListening(false);
              };
              
@@ -257,6 +349,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      return () => {
        if (speechSynthesis) {
          speechSynthesis.cancel();
+         console.log('TTS cleanup on component unmount');
        }
      };
    }, [speechSynthesis]);
@@ -268,12 +361,40 @@ export default function InterviewPage({ params }: InterviewPageProps) {
          try {
            recognition.stop();
            recognition.abort();
+           console.log('Speech recognition cleanup on component unmount');
          } catch (error) {
            console.error('Error cleaning up speech recognition:', error);
          }
        }
      };
    }, [recognition]);
+
+   // Handle page visibility changes to stop TTS when user switches tabs
+   useEffect(() => {
+     const handleVisibilityChange = () => {
+       if (document.hidden && speechSynthesis) {
+         speechSynthesis.cancel();
+         setIsAISpeaking(false);
+         console.log('TTS stopped due to page visibility change');
+       }
+     };
+
+     const handleBeforeUnload = () => {
+       if (speechSynthesis) {
+         speechSynthesis.cancel();
+         setIsAISpeaking(false);
+         console.log('TTS stopped due to page unload');
+       }
+     };
+
+     document.addEventListener('visibilitychange', handleVisibilityChange);
+     window.addEventListener('beforeunload', handleBeforeUnload);
+     
+     return () => {
+       document.removeEventListener('visibilitychange', handleVisibilityChange);
+       window.removeEventListener('beforeunload', handleBeforeUnload);
+     };
+   }, [speechSynthesis]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -307,9 +428,21 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      }
    }, [activeTab]);
  
+
+
    // Session management functions
    const initializeSession = useCallback(async () => {
      if (!problem) return;
+     
+     // Check if we're in view mode (sessionId in URL)
+     const urlParams = new URLSearchParams(window.location.search);
+     const viewSessionId = urlParams.get('sessionId');
+     
+     // Don't initialize if we're viewing an existing session
+     if (viewSessionId) {
+       console.log('Skipping session initialization - in view mode');
+       return;
+     }
      
      try {
        setIsSessionLoading(true);
@@ -398,6 +531,79 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      [autoSaveSession]
    );
 
+   // Manual save function
+   const handleManualSave = useCallback(async () => {
+     if (isSessionActive && sessionId) {
+       try {
+         await autoSaveSession();
+         // Show a brief save indicator
+         const saveIndicator = document.createElement('div');
+         saveIndicator.textContent = '💾 Saved!';
+         saveIndicator.style.cssText = `
+           position: fixed;
+           top: 20px;
+           right: 20px;
+           background: #10b981;
+           color: white;
+           padding: 8px 16px;
+           border-radius: 6px;
+           font-size: 14px;
+           font-weight: 500;
+           z-index: 1000;
+           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+           animation: slideIn 0.3s ease-out;
+         `;
+         document.body.appendChild(saveIndicator);
+         
+         // Remove after 2 seconds
+         setTimeout(() => {
+           if (saveIndicator.parentNode) {
+             saveIndicator.parentNode.removeChild(saveIndicator);
+           }
+         }, 2000);
+       } catch (error) {
+         console.error('Manual save failed:', error);
+         // Show error indicator
+         const errorIndicator = document.createElement('div');
+         errorIndicator.textContent = '❌ Save failed';
+         errorIndicator.style.cssText = `
+           position: fixed;
+           top: 20px;
+           right: 20px;
+           background: #ef4444;
+           color: white;
+           padding: 8px 16px;
+           border-radius: 6px;
+           font-size: 14px;
+           font-weight: 500;
+           z-index: 1000;
+           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+           animation: slideIn 0.3s ease-out;
+         `;
+         document.body.appendChild(errorIndicator);
+         
+         setTimeout(() => {
+           if (errorIndicator.parentNode) {
+             errorIndicator.parentNode.removeChild(errorIndicator);
+           }
+         }, 2000);
+       }
+     }
+   }, [isSessionActive, sessionId, autoSaveSession]);
+
+   // Keyboard event handler for Ctrl+S
+   useEffect(() => {
+     const handleKeyDown = (event: KeyboardEvent) => {
+       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+         event.preventDefault(); // Prevent browser's default save dialog
+         handleManualSave();
+       }
+     };
+
+     document.addEventListener('keydown', handleKeyDown);
+     return () => document.removeEventListener('keydown', handleKeyDown);
+   }, [handleManualSave]);
+
    const handleEndInterview = async (reason: 'manual' | 'completion') => {
      if (!isSessionActive || !problem) return;
      
@@ -456,7 +662,14 @@ export default function InterviewPage({ params }: InterviewPageProps) {
    // Session management effects
    useEffect(() => {
      if (problem && !isSessionActive) {
-       initializeSession();
+       // Check if we're in view mode (sessionId in URL)
+       const urlParams = new URLSearchParams(window.location.search);
+       const sessionId = urlParams.get('sessionId');
+       
+       // Only initialize new session if not viewing an existing session
+       if (!sessionId) {
+         initializeSession();
+       }
      }
    }, [problem, isSessionActive, initializeSession]);
 
@@ -471,24 +684,36 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      }
    }, [isSessionActive, sessionId, debouncedAutoSave]);
 
-   // Auto-save on code changes
+   // Auto-save on code changes (debounced)
    useEffect(() => {
      if (isSessionActive && sessionId) {
-       debouncedAutoSave();
+       const timeoutId = setTimeout(() => {
+         debouncedAutoSave();
+       }, 2000); // Wait 2 seconds after code changes
+       
+       return () => clearTimeout(timeoutId);
      }
    }, [code, isSessionActive, sessionId, debouncedAutoSave]);
 
-   // Auto-save on test results changes
+   // Auto-save on test results changes (debounced)
    useEffect(() => {
      if (isSessionActive && sessionId) {
-       debouncedAutoSave();
+       const timeoutId = setTimeout(() => {
+         debouncedAutoSave();
+       }, 1000); // Wait 1 second after test results change
+       
+       return () => clearTimeout(timeoutId);
      }
    }, [testResults, isSessionActive, sessionId, debouncedAutoSave]);
 
-   // Auto-save on messages changes
+   // Auto-save on messages changes (debounced)
    useEffect(() => {
      if (isSessionActive && sessionId) {
-       debouncedAutoSave();
+       const timeoutId = setTimeout(() => {
+         debouncedAutoSave();
+       }, 1000); // Wait 1 second after messages change
+       
+       return () => clearTimeout(timeoutId);
      }
    }, [messages, isSessionActive, sessionId, debouncedAutoSave]);
 
@@ -534,7 +759,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      }
      
      // Stop any ongoing AI speech when starting voice chat
-     if (isAISpeaking) {
+     if (isAISpeaking || speechSynthesis?.speaking) {
        stopSpeaking();
        console.log('Stopped AI speech to start voice chat');
      }
@@ -546,8 +771,17 @@ export default function InterviewPage({ params }: InterviewPageProps) {
      setTranscript('');
      
      try {
-       recognition.start();
-       console.log('Started voice recognition - will continue until manually stopped');
+       // Add a small delay to ensure TTS has fully stopped
+       setTimeout(() => {
+         try {
+           recognition.start();
+           console.log('Started voice recognition - will continue until manually stopped');
+         } catch (innerError) {
+           console.error('Error starting speech recognition after delay:', innerError);
+           setRecognitionError('Failed to start microphone - please try again');
+           setRecordingStartTime(null);
+         }
+       }, 500); // Increased delay to ensure TTS cleanup
      } catch (error) {
        console.error('Error starting speech recognition:', error);
        setRecognitionError('Failed to start microphone');
@@ -557,10 +791,19 @@ export default function InterviewPage({ params }: InterviewPageProps) {
 
    const stopVoiceInteraction = () => {
      if (recognition) {
-       recognition.stop();
-       console.log('Stopped voice recognition manually');
-       // Keep the transcript visible for review
-       // Don't reset transcript here - let user review and send
+       try {
+         recognition.stop();
+         // Small delay to ensure recognition stops properly
+         setTimeout(() => {
+           setIsListening(false);
+           console.log('Stopped voice recognition manually');
+         }, 100);
+         // Keep the transcript visible for review
+         // Don't reset transcript here - let user review and send
+       } catch (error) {
+         console.error('Error stopping voice recognition:', error);
+         setIsListening(false);
+       }
      }
    };
 
@@ -697,6 +940,7 @@ export default function InterviewPage({ params }: InterviewPageProps) {
             examples: problem.examples,
           },
           currentCode: code,
+          isViewMode: !isSessionActive, // Pass view mode flag
         }),
       });
 
@@ -713,8 +957,8 @@ export default function InterviewPage({ params }: InterviewPageProps) {
       // Add assistant message to chat
       setMessages(prev => [...prev, data.message]);
 
-      // Speak the AI response
-      if (data.message.role === 'assistant') {
+      // Speak the AI response (only if TTS is enabled)
+      if (data.message.role === 'assistant' && ttsEnabled) {
         // Clean the text for speech (remove markdown, code blocks, etc.)
         const cleanText = data.message.content
           .replace(/```[\s\S]*?```/g, '') // Remove code blocks
@@ -753,16 +997,44 @@ export default function InterviewPage({ params }: InterviewPageProps) {
 
   // Quick action handlers
   const handleQuickAction = async (actionType: string) => {
-    switch (actionType) {
-      case 'hint':
-        await sendMessage('Can you give me a hint for this problem?');
-        break;
-      case 'clarify':
-        await sendMessage('Can you help me understand the problem better?');
-        break;
-      case 'complexity':
-        await sendMessage('What should be the time and space complexity for this solution?');
-        break;
+    if (!isSessionActive) {
+      // View mode - different prompts for completed sessions
+      switch (actionType) {
+        case 'hint':
+          await sendMessage('Can you explain the key concepts and approach used in this solution?');
+          break;
+        case 'clarify':
+          await sendMessage('Can you help me understand how this solution works step by step?');
+          break;
+        case 'complexity':
+          await sendMessage('What is the time and space complexity of this solution, and how does it compare to other approaches?');
+          break;
+        case 'explain':
+          await sendMessage('Can you explain the solution approach and how it works?');
+          break;
+        case 'improve':
+          await sendMessage('What improvements could be made to this solution and what are some alternative approaches?');
+          break;
+      }
+    } else {
+      // Active interview mode - original prompts
+      switch (actionType) {
+        case 'hint':
+          await sendMessage('Can you give me a hint for this problem?');
+          break;
+        case 'clarify':
+          await sendMessage('Can you help me understand the problem better?');
+          break;
+        case 'complexity':
+          await sendMessage('What should be the time and space complexity for this solution?');
+          break;
+        case 'explain':
+          await sendMessage('Can you explain the solution approach and how it works?');
+          break;
+        case 'improve':
+          await sendMessage('What improvements could be made to this solution?');
+          break;
+      }
     }
   };
 
@@ -814,8 +1086,8 @@ export default function InterviewPage({ params }: InterviewPageProps) {
 
         setMessages(prev => [...prev, data.message]);
         
-        // Speak the AI hint response
-        if (data.message.role === 'assistant') {
+        // Speak the AI hint response (only if TTS is enabled)
+        if (data.message.role === 'assistant' && ttsEnabled) {
           const cleanText = data.message.content
             .replace(/```[\s\S]*?```/g, '')
             .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -1453,6 +1725,15 @@ if __name__ == "__main__":
                  </button>
                )}
                
+               {!isSessionActive && (
+                 <Link
+                   href="/dashboard"
+                   className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-3 rounded-lg transition-colors text-sm"
+                 >
+                   🚪 Leave Session
+                 </Link>
+               )}
+               
                <Link
                  href="/problem-select"
                  className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-3 rounded-lg transition-colors text-sm"
@@ -1842,7 +2123,9 @@ if __name__ == "__main__":
                                          {/* Chat Header */}
                      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                        <div className="flex items-center justify-between">
-                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interview Chat Transcript</h3>
+                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                           {isSessionActive ? 'Interview Chat Transcript' : 'Session Chat History'}
+                         </h3>
                          <div className="flex items-center gap-2">
                            {submitState === 'success' && (
                              <div className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
@@ -1865,6 +2148,12 @@ if __name__ == "__main__":
                                <span>TTS Ready</span>
                              </div>
                            )}
+                           {!ttsEnabled && (
+                             <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                               <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                               <span>TTS Disabled</span>
+                             </div>
+                           )}
                            {isListening && (
                              <div className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400">
                                <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
@@ -1878,24 +2167,46 @@ if __name__ == "__main__":
                        <div className="mt-3 flex items-center gap-2">
                          <button
                            onClick={() => {
+                             if (!ttsEnabled) {
+                               alert('TTS is currently disabled. Please enable TTS first.');
+                               return;
+                             }
                              const testText = "Hello! This is a test of the text-to-speech system. Can you hear me speaking?";
                              speakText(testText);
                            }}
-                           className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                           disabled={!ttsEnabled}
+                           className={`px-3 py-1 rounded text-sm transition-colors ${
+                             ttsEnabled 
+                               ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                               : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                           }`}
                          >
                            🔊 Test TTS
                          </button>
                          
                          <button
                            onClick={() => {
+                             if (!ttsEnabled) {
+                               alert('TTS is currently disabled. Please enable TTS first.');
+                               return;
+                             }
                              const welcomeText = "Welcome to your voice-enabled coding interview! I'm here to help guide you through solving this problem. This interview uses voice interaction to evaluate your communication skills. Think out loud about your approach, ask questions about the problem, request hints if you get stuck, and discuss time and space complexity. You can also type your responses if needed. Take your time and work through the problem step by step. Start by explaining your initial thoughts about the problem!";
                              speakText(welcomeText);
                            }}
-                           className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                           disabled={!ttsEnabled}
+                           className={`px-3 py-1 rounded text-sm transition-colors ${
+                             ttsEnabled 
+                               ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
+                               : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                           }`}
                          >
                            🎤 Speak Welcome
                          </button>
                          
+                         {/* TTS Help Text */}
+                         <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                           <span className="font-medium">TTS:</span> Controls whether AI responses are spoken aloud. When disabled, you&apos;ll only see text responses.
+                         </div>
 
                        </div>
                        
@@ -2075,17 +2386,32 @@ if __name__ == "__main__":
                         </button>
                         
                         <button
-                          onClick={() => setTtsEnabled(!ttsEnabled)}
+                          onClick={() => {
+                            setTtsEnabled(!ttsEnabled);
+                            // Provide immediate feedback
+                            if (!ttsEnabled) {
+                              // If enabling TTS, give a quick test sound
+                              setTimeout(() => {
+                                if (speechSynthesis) {
+                                  const testUtterance = new SpeechSynthesisUtterance("TTS enabled");
+                                  testUtterance.rate = 1.5;
+                                  testUtterance.volume = 0.5;
+                                  speechSynthesis.speak(testUtterance);
+                                }
+                              }, 100);
+                            }
+                          }}
                           className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-colors ${
                             ttsEnabled 
-                              ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                              : 'bg-gray-600 hover:bg-gray-700 text-white'
+                              ? 'bg-green-600 hover:bg-green-700 text-white' 
+                              : 'bg-red-600 hover:bg-red-700 text-white'
                           }`}
+                          title={ttsEnabled ? 'Click to disable text-to-speech' : 'Click to enable text-to-speech'}
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                           </svg>
-                          {ttsEnabled ? 'TTS On' : 'TTS Off'}
+                          {ttsEnabled ? '🔊 TTS On' : '🔇 TTS Off'}
                         </button>
                         
                         {/* Manual Microphone Restart Button */}
@@ -2094,17 +2420,21 @@ if __name__ == "__main__":
                             if (recognition) {
                               try {
                                 recognition.stop();
+                                setIsListening(false);
                                 setTimeout(() => {
                                   try {
                                     recognition.start();
+                                    setIsListening(true);
                                     setRecognitionError(null);
                                   } catch (error) {
                                     console.error('Failed to restart microphone:', error);
                                     setRecognitionError('Failed to restart microphone');
+                                    setIsListening(false);
                                   }
                                 }, 500);
                               } catch (error) {
                                 console.error('Failed to stop microphone:', error);
+                                setIsListening(false);
                               }
                             }
                           }}
@@ -2169,7 +2499,7 @@ if __name__ == "__main__":
                           type="text"
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
-                          placeholder="Type your thoughts, questions, or request a hint..."
+                          placeholder={isSessionActive ? "Type your thoughts, questions, or request a hint..." : "Ask follow-up questions about this interview session..."}
                           disabled={isLoading}
                           className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white disabled:opacity-50"
                         />
@@ -2182,20 +2512,41 @@ if __name__ == "__main__":
                         </button>
                       </form>
                       <div className="flex gap-2 flex-wrap">
-                        <button 
-                          onClick={() => handleQuickAction('hint')}
-                          disabled={isLoading}
-                          className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
-                        >
-                          💡 Get Hint
-                        </button>
-                        <button 
-                          onClick={() => handleQuickAction('clarify')}
-                          disabled={isLoading}
-                          className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
-                        >
-                          🔍 Clarify Problem
-                        </button>
+                        {isSessionActive ? (
+                          <>
+                            <button 
+                              onClick={() => handleQuickAction('hint')}
+                              disabled={isLoading}
+                              className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
+                            >
+                              💡 Get Hint
+                            </button>
+                            <button 
+                              onClick={() => handleQuickAction('clarify')}
+                              disabled={isLoading}
+                              className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
+                            >
+                              🔍 Clarify Problem
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => handleQuickAction('explain')}
+                              disabled={isLoading}
+                              className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
+                            >
+                              📝 Explain Solution
+                            </button>
+                            <button 
+                              onClick={() => handleQuickAction('improve')}
+                              disabled={isLoading}
+                              className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
+                            >
+                              🚀 Suggest Improvements
+                            </button>
+                          </>
+                        )}
                         <button 
                           onClick={() => handleQuickAction('complexity')}
                           disabled={isLoading}
@@ -2214,18 +2565,22 @@ if __name__ == "__main__":
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col overflow-hidden">
               <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">Python Code Editor</h3>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                    Python Code Editor {!isSessionActive && '(View Mode)'}
+                  </h3>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       <span className="text-sm text-gray-600 dark:text-gray-400">Python 3.x</span>
                     </div>
-                    <button
-                      onClick={() => setCode(getFullPythonCode(parseInt(resolvedParams.problemId)))}
-                      className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors"
-                    >
-                      Reset Code
-                    </button>
+                    {isSessionActive && (
+                      <button
+                        onClick={() => setCode(getFullPythonCode(parseInt(resolvedParams.problemId)))}
+                        className="text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-1 rounded transition-colors"
+                      >
+                        Reset Code
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2236,7 +2591,7 @@ if __name__ == "__main__":
                   height="100%"
                   defaultLanguage="python"
                   value={code}
-                  onChange={(value) => setCode(value || '')}
+                  onChange={isSessionActive ? (value) => setCode(value || '') : undefined}
                   onMount={() => setIsEditorReady(true)}
                   theme="vs-dark"
                   options={{
@@ -2251,6 +2606,7 @@ if __name__ == "__main__":
                     insertSpaces: true,
                     wordWrap: 'on',
                     bracketPairColorization: { enabled: true },
+                    readOnly: !isSessionActive,
                     suggest: {
                       showKeywords: true,
                       showSnippets: true,
@@ -2265,17 +2621,17 @@ if __name__ == "__main__":
                     },
                     parameterHints: { enabled: true },
                     hover: { enabled: true },
-                    contextmenu: true,
+                    contextmenu: isSessionActive,
                     selectOnLineNumbers: true,
-                    cursorStyle: 'line',
+                    cursorStyle: isSessionActive ? 'line' : 'block',
                     cursorWidth: 2,
                     renderWhitespace: 'selection',
                     showFoldingControls: 'always',
                     smoothScrolling: true,
                     cursorBlinking: 'blink',
                     multiCursorModifier: 'ctrlCmd',
-                    formatOnPaste: true,
-                    formatOnType: true,
+                    formatOnPaste: isSessionActive,
+                    formatOnType: isSessionActive,
                     autoIndent: 'full',
                     detectIndentation: false,
                     rulers: [80, 120],
@@ -2293,43 +2649,60 @@ if __name__ == "__main__":
 
               {/* Action Buttons */}
               <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-                <div className="flex flex-col gap-2">
-                  <button 
-                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                    disabled={!isEditorReady}
-                    onClick={handleRunTestCases}
-                  >
-                    🧪 Run Test Cases
-                  </button>
-                  <button 
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                    disabled={!isEditorReady || isLoading}
-                    onClick={handleGetAIHint}
-                  >
-                    {isLoading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto mb-1"></div>
-                        Getting Hint...
-                      </>
-                    ) : (
-                      '🤖 Get AI Hint'
-                    )}
-                  </button>
-                                     <button 
-                     className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                     disabled={!isEditorReady || submitState === 'submitting'}
-                     onClick={handleSubmit}
-                   >
-                     {submitState === 'submitting' ? (
-                       <>
-                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto mb-1"></div>
-                         Evaluating Solution...
-                       </>
-                     ) : (
-                       '✅ Submit Solution'
-                     )}
-                   </button>
-                </div>
+                {/* Debug: Show current state */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="text-xs text-gray-500 mb-2">
+                    Debug: isSessionActive = {String(isSessionActive)}
+                  </div>
+                )}
+                {isSessionActive ? (
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      disabled={!isEditorReady}
+                      onClick={handleRunTestCases}
+                    >
+                      🧪 Run Test Cases
+                    </button>
+                    <button 
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      disabled={!isEditorReady || isLoading}
+                      onClick={handleGetAIHint}
+                    >
+                      {isLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto mb-1"></div>
+                          Getting Hint...
+                        </>
+                      ) : (
+                        '🤖 Get AI Hint'
+                      )}
+                    </button>
+                    <button 
+                      className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                      disabled={!isEditorReady || submitState === 'submitting'}
+                      onClick={handleSubmit}
+                    >
+                      {submitState === 'submitting' ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto mb-1"></div>
+                          Evaluating Solution...
+                        </>
+                      ) : (
+                        '✅ Submit Solution'
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <div className="text-gray-500 dark:text-gray-400 text-sm">
+                      📖 View Mode - This is a completed interview session
+                    </div>
+                    <div className="text-gray-400 dark:text-gray-500 text-xs mt-1">
+                      You can view the code and chat history, and ask follow-up questions
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

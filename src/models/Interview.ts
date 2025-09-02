@@ -38,7 +38,7 @@ export interface IInterviewSession extends Document {
   
   // AI feedback summary
   aiFeedback: {
-    summary: string; // 2-3 sentence overview
+    summary?: string; // 2-3 sentence overview (optional)
     strengths: string[]; // what went well
     improvements: string[]; // areas for improvement
     overallScore: number; // 0-100 score
@@ -87,15 +87,15 @@ const InterviewSessionSchema = new Schema<IInterviewSession>({
   elapsedTime: { type: Number, required: true },
   
   performanceMetrics: {
-    testCasesPassed: { type: Number, required: true },
-    totalTestCases: { type: Number, required: true },
-    successRate: { type: Number, required: true },
-    timeEfficiency: { type: Number, required: true },
-    codeQuality: { type: Number, required: true }
+    testCasesPassed: { type: Number, required: false, default: 0 },
+    totalTestCases: { type: Number, required: false, default: 0 },
+    successRate: { type: Number, required: false, default: 0 },
+    timeEfficiency: { type: Number, required: false, default: 0 },
+    codeQuality: { type: Number, required: false, default: 0 }
   },
   
   aiFeedback: {
-    summary: { type: String, required: true },
+    summary: { type: String, required: false, default: '' },
     strengths: [{ type: String }],
     improvements: [{ type: String }],
     overallScore: { type: Number, required: true, min: 0, max: 100 }

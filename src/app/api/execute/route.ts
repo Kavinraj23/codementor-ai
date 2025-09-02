@@ -43,6 +43,15 @@ export async function POST(request: NextRequest) {
     if (!submitResponse.ok) {
       const errorText = await submitResponse.text();
       console.error('Judge0 submit error:', errorText);
+      
+      // Handle quota exceeded specifically
+      if (submitResponse.status === 429 || errorText.includes('quota') || errorText.includes('limit')) {
+        return NextResponse.json(
+          { error: 'Judge0 API quota exceeded. Please try again later or contact support.' },
+          { status: 429 }
+        );
+      }
+      
       return NextResponse.json(
         { error: `Judge0 submission failed: ${submitResponse.statusText}` },
         { status: submitResponse.status }

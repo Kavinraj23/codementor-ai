@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import connectDB from '@/lib/db';
 import Interview from '@/models/Interview';
 
@@ -8,9 +9,24 @@ export async function GET(
   { params }: { params: { sessionId: string } }
 ) {
   try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
-    const session = await Interview.findOne({ sessionId: params.sessionId });
+    const session = await Interview.findOne({ 
+      sessionId: params.sessionId,
+      userId: userId // Only allow access to user's own sessions
+    });
 
     if (!session) {
       return NextResponse.json(
@@ -44,6 +60,18 @@ export async function PUT(
   { params }: { params: { sessionId: string } }
 ) {
   try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
     const body = await request.json();
@@ -60,9 +88,12 @@ export async function PUT(
       aiEvaluation
     } = body;
 
-    // Find and update session
+    // Find and update session (only user's own sessions)
     const session = await Interview.findOneAndUpdate(
-      { sessionId: params.sessionId },
+      { 
+        sessionId: params.sessionId,
+        userId: userId // Only allow updates to user's own sessions
+      },
       {
         ...(currentCode && { currentCode }),
         ...(testResults && { testResults }),
@@ -111,9 +142,24 @@ export async function DELETE(
   { params }: { params: { sessionId: string } }
 ) {
   try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
-    const session = await Interview.findOneAndDelete({ sessionId: params.sessionId });
+    const session = await Interview.findOneAndDelete({ 
+      sessionId: params.sessionId,
+      userId: userId // Only allow deletion of user's own sessions
+    });
 
     if (!session) {
       return NextResponse.json(

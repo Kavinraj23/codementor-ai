@@ -8,12 +8,19 @@ This is a [Next.js](https://nextjs.org) project that provides an AI-powered codi
 - **Automated Testing**: Run test cases against your solutions using Judge0
 - **Multiple Problem Types**: Support for various coding problems including arrays, linked lists, and more
 - **Real-time Code Execution**: Execute Python code in a secure sandbox environment
+- **User Authentication**: Secure user accounts with Clerk authentication
+- **Session Management**: Track and manage your interview sessions
+- **Voice Interaction**: Speech-to-text and text-to-speech capabilities
 
 ## Environment Variables
 
 Create a `.env.local` file in the root directory with the following variables:
 
 ```bash
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
+
 # Judge0 API Configuration
 # Get your API key from: https://rapidapi.com/judge0-official/api/judge0-ce/
 JUDGE0_API_KEY=your_rapidapi_key_here
@@ -21,19 +28,35 @@ JUDGE0_API_KEY=your_rapidapi_key_here
 # Optional: Custom Judge0 API URL (defaults to RapidAPI endpoint)
 # JUDGE0_API_URL=https://judge0-ce.p.rapidapi.com
 
-# Other existing variables
+# MongoDB Connection
 MONGODB_URI=your_mongodb_connection_string
+
+# OpenAI API
 OPENAI_API_KEY=your_openai_api_key
 ```
 
-## Judge0 Setup
+## Setup Instructions
 
+### 1. Clerk Authentication Setup
+1. **Create Clerk Account**: Go to [https://clerk.com/](https://clerk.com/) and create an account
+2. **Create Application**: Create a new application in Clerk dashboard
+3. **Get API Keys**: Copy your publishable key and secret key from the Clerk dashboard
+4. **Add to .env.local**: Set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`
+
+### 2. Judge0 Setup
 1. **Sign up for RapidAPI**: Go to [https://rapidapi.com/](https://rapidapi.com/) and create an account
 2. **Subscribe to Judge0**: Search for "Judge0 CE" and subscribe to the API
 3. **Get API Key**: Copy your RapidAPI key from your dashboard
 4. **Add to .env.local**: Set `JUDGE0_API_KEY=your_key_here`
 
-## Getting Started
+### 3. MongoDB Setup
+1. **Create MongoDB Atlas account** or use a local MongoDB instance
+2. **Create a database** named `codementor-ai`
+3. **Copy your connection string** to `MONGODB_URI`
+
+### 4. OpenAI Setup
+1. **Get OpenAI API Key**: Create an account at [https://openai.com/](https://openai.com/)
+2. **Add to .env.local**: Set `OPENAI_API_KEY=your_key_here`
 
 ## Getting Started
 
@@ -51,9 +74,13 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Authentication Flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Landing Page**: Users see the homepage with "Get Started" and "Sign In" buttons
+2. **Sign Up**: New users create accounts with email/password or social login
+3. **Sign In**: Existing users authenticate to access their dashboard
+4. **Dashboard**: Authenticated users see their interview sessions and can start new ones
+5. **Protected Routes**: All interview functionality requires authentication
 
 ## Learn More
 

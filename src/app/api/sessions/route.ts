@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import connectDB from '@/lib/db';
 import Interview from '@/models/Interview';
 
 // Create new session
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
     const body = await request.json();
+    
     const {
       problemId,
       problemTitle,
       problemDifficulty,
-      currentCode,
-      userId
+      currentCode
     } = body;
 
     // Validate required fields
@@ -31,7 +44,7 @@ export async function POST(request: NextRequest) {
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Create new interview session
-    const session = new Interview({
+    const sessionData = {
       sessionId,
       problemId,
       problemTitle,
@@ -51,14 +64,14 @@ export async function POST(request: NextRequest) {
         codeQuality: 0
       },
       aiFeedback: {
-        summary: '',
         strengths: [],
         improvements: [],
         overallScore: 0
       },
-      userId: userId || null
-    });
-
+      userId: userId
+    };
+    
+    const session = new Interview(sessionData);
     const savedSession = await session.save();
 
     return NextResponse.json({
@@ -80,17 +93,27 @@ export async function POST(request: NextRequest) {
 // Get all sessions (for dashboard)
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication required',
+        },
+        { status: 401 }
+      );
+    }
+
     await connectDB();
 
     const searchParams = request.nextUrl.searchParams;
-    const userId = searchParams.get('userId');
     const status = searchParams.get('status');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    // Build query
-    const query: any = {};
-    if (userId) query.userId = userId;
+    // Build query - only show user's own sessions
+    const query: Record<string, unknown> = { userId };
     if (status) query.status = status;
 
     // Calculate skip value for pagination

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useUser } from '@clerk/nextjs';
 import { IInterviewSession } from '@/models/Interview';
 
 interface DashboardSession {
@@ -27,14 +28,19 @@ interface DashboardSession {
 }
 
 export default function DashboardPage() {
+  const { user, isLoaded } = useUser();
   const [sessions, setSessions] = useState<DashboardSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'completed'>('all');
+  const [deletingSession, setDeletingSession] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSessions();
-  }, []);
+    if (isLoaded && user) {
+      fetchSessions();
+    }
+  }, [isLoaded, user]);
 
   const fetchSessions = async () => {
     try {
@@ -52,6 +58,28 @@ export default function DashboardPage() {
       setError('Failed to load interview sessions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      setDeletingSession(sessionId);
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete session');
+      }
+
+      // Remove the session from the local state
+      setSessions(prev => prev.filter(session => session.sessionId !== sessionId));
+      setShowDeleteConfirm(null);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      setError('Failed to delete session');
+    } finally {
+      setDeletingSession(null);
     }
   };
 
@@ -141,13 +169,24 @@ export default function DashboardPage() {
               <p className="text-gray-600 dark:text-gray-300">
                 Track your coding interview progress and performance
               </p>
+              {user && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!
+                </p>
+              )}
             </div>
-            <div className="mt-4 md:mt-0">
+            <div className="mt-4 md:mt-0 flex items-center gap-4">
               <Link
                 href="/problem-select"
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
               >
                 🚀 Start New Interview
+              </Link>
+              <Link
+                href="/sign-out"
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+              >
+                Sign Out
               </Link>
             </div>
           </div>
@@ -339,21 +378,61 @@ export default function DashboardPage() {
                         {formatDate(session.startTime)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        {session.status === 'active' ? (
-                          <Link
-                            href={`/interview/${session.problemId}`}
-                            className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                        <div className="flex items-center space-x-3">
+                          {session.status === 'active' ? (
+                            <Link
+                              href={`/interview/${session.problemId}`}
+                              className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                              Continue
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/interview/${session.problemId}?sessionId=${session.sessionId}`}
+                              className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
+                            >
+                              View
+                            </Link>
+                          )}
+                          
+                          {/* Delete Button */}
+                          <button
+                            onClick={() => setShowDeleteConfirm(session.sessionId)}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                            title="Delete session"
                           >
-                            Continue
-                          </Link>
-                        ) : (
-                          <Link
-                            href={`/interview/${session.problemId}`}
-                            className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
-                          >
-                            View
-                          </Link>
-                        )}
+                            🗑️
+                          </button>
+                        </div>
+                        
+                        {/* Delete Confirmation Modal */}
+                        {showDeleteConfirm === session.sessionId && (
+           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-4 w-96">
+        <h3 className="text-lg font-bold mb-3">Delete Session</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+          Are you sure you want to delete this session?
+        </p>
+       <div className="flex justify-end space-x-2">
+         <button
+           onClick={() => setShowDeleteConfirm(null)}
+           className="px-3 py-1 text-gray-600 hover:text-gray-800"
+           disabled={deletingSession === session.sessionId}
+         >
+           Cancel
+         </button>
+         <button
+           onClick={() => handleDeleteSession(session.sessionId)}
+           className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded"
+           disabled={deletingSession === session.sessionId}
+         >
+           {deletingSession === session.sessionId ? 'Deleting...' : 'Delete'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
                       </td>
                     </tr>
                   ))}

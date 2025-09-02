@@ -24,6 +24,7 @@ interface ChatRequest {
   currentCode: string;
   isSolutionSubmission?: boolean;
   isHintRequest?: boolean;
+  isViewMode?: boolean;
 }
 
 // Helper function to manage context and control token usage
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { messages, problemContext, currentCode, isSolutionSubmission, isHintRequest }: ChatRequest = await request.json();
+    const { messages, problemContext, currentCode, isSolutionSubmission, isHintRequest, isViewMode }: ChatRequest = await request.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -93,7 +94,24 @@ export async function POST(request: NextRequest) {
     let contextMessage = '';
 
     // Add general system instructions for the AI interviewer
-    contextMessage += `SYSTEM INSTRUCTIONS: You are an AI coding interview coach. Your role is to GUIDE candidates through problems, not solve them for them.
+    if (isViewMode) {
+      contextMessage += `SYSTEM INSTRUCTIONS: You are an AI coding assistant helping with follow-up questions about a completed interview session. The user has already completed this coding problem and is now asking follow-up questions.
+
+Your role is to:
+- Answer questions about the completed solution
+- Explain concepts and approaches used
+- Provide educational insights about the problem
+- Help with understanding time/space complexity
+- Suggest improvements or alternative approaches
+- Answer any follow-up questions about the problem or solution
+
+You can be more direct and educational since this is post-interview learning, but still encourage critical thinking.
+
+---
+
+`;
+    } else {
+      contextMessage += `SYSTEM INSTRUCTIONS: You are an AI coding interview coach. Your role is to GUIDE candidates through problems, not solve them for them.
 
 CRITICAL RULES:
 1. NEVER provide complete working solutions or implementations
@@ -114,6 +132,7 @@ Remember: The learning happens when candidates solve problems themselves. You ar
 ---
 
 `;
+    }
 
     // Add problem context only when needed
     if (includeProblemContext && problemContext) {
@@ -278,7 +297,12 @@ Example response: "I understand you'd like some starter code, but I can't provid
     }
 
     // Call OpenAI Custom GPT API (fallback to regular API if needed)
-    const completion = await openai.responses.create({
+    // Add timeout handling for the OpenAI API call
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout')), 30000); // 30 second timeout
+    });
+
+    const completionPromise = openai.responses.create({
       prompt: {
         id: process.env.OPENAI_CUSTOM_GPT_ID!, // Secure environment variable
         version: "1"
@@ -293,6 +317,8 @@ Example response: "I understand you'd like some starter code, but I can't provid
       max_output_tokens: getTokenLimitForRequest(isHintRequest || false, isSolutionSubmission || false), // Dynamic token limit
       store: true
     });
+
+    const completion = await Promise.race([completionPromise, timeoutPromise]) as any;
 
     // Parse custom GPT response - correct structure based on your API response
     let assistantMessage = '';
